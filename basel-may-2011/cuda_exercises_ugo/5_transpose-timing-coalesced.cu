@@ -1,6 +1,6 @@
 // #CSCS CUDA Training 
 //
-// #Exercise 3.1 - transpose matrix, coalesced access
+// #Exercise 3.2 - transpose matrix, coalesced access
 //
 // #Author: Ugo Varetto
 //
@@ -144,7 +144,7 @@ int main(int argc, char** argv ) {
 	float elapsed = 0.f;
 	cudaEventElapsedTime( &elapsed, start, stop );
 	
-	std::cout << "Elapsed time (ms): " << elapsed / 1000 << " milliseconds" << std::endl;
+	std::cout << "Elapsed time (ms): " << elapsed / 1000 << std::endl;
 
 	// copy output data from device(gpu) to host(cpu)
 	cudaMemcpy( &outmatrix[ 0 ], dev_out, SIZE, cudaMemcpyDeviceToHost );
