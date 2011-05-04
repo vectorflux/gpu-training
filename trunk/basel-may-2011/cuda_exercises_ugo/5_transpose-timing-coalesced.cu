@@ -17,7 +17,7 @@
 //
 // #Code: 1) compute launch grid configuration
 //        2) allocate data on host(cpu) and device(gpu)
-//        3) copy data from host ro device
+//        3) initialize data directly on the GPU
 //        4) create events
 //        5) record start time
 //        6) launch kernel

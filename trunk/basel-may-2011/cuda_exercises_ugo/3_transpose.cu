@@ -15,7 +15,7 @@
 // #Code: typical flow:
 //        1) compute launch grid configuration
 //        2) allocate data on host(cpu) and device(gpu)
-//        3) copy data from host ro device
+//        3) initialize data directly on the GPU
 //        4) launch kernel
 //        5) read data back
 //        6) consume data (in this case print result)
