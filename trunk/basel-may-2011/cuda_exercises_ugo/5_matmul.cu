@@ -39,9 +39,8 @@ __global__ void matmul( const real_t* m1, const real_t* m2, real_t* mout,
     __shared__ real_t M1[ TILE_SIZE ][ TILE_SIZE     ];
 	__shared__ real_t M2[ TILE_SIZE ][ TILE_SIZE + 1 ];     
 #endif		
-	const int m2_rows = m1_columns;
-    const blockRow = blockIdx.y * blockDim.y; 
-    const blockCol = blockIdx.x * blockDim.x;
+	const int blockRow = blockIdx.y * blockDim.y; 
+    const int blockCol = blockIdx.x * blockDim.x;
     const int row = threadIdx.y;
     const int col = threadIdx.x;
     real_t out = 0.f;
