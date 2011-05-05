@@ -98,8 +98,8 @@ int main( int , char**  ) {
     cudaMalloc( &dev_out, SIZE  );
     
     // copy data to GPU
-	cudaMemcpy( dev_in1, &v1[ 0 ], SIZE, cudaMemcpyDeviceToHost );
-	cudaMemcpy( dev_in2, &v2[ 0 ], SIZE, cudaMemcpyDeviceToHost );
+	cudaMemcpy( dev_in1, &v1[ 0 ], SIZE, cudaMemcpyHostToDevice );
+	cudaMemcpy( dev_in2, &v2[ 0 ], SIZE, cudaMemcpyHostToDevice );
 
 	// execute kernel
 	sum_vectors<<<BLOCK_SIZE, THREADS_PER_BLOCK>>>( dev_in1, dev_in2, dev_out, VECTOR_SIZE );
