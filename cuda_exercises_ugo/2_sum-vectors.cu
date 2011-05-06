@@ -5,7 +5,7 @@
 // #Author Ugo Varetto
 //
 // #Goal: compute the scalar product of two 1D vectors using a number of threads lower than the number of elements
-//        and not evenly divisable by the block size (i.e. num threads per block);
+//        and not evenly divisible by the block size (i.e. num threads per block);
 //        number of threads per block must be > 1       
 //
 // #Rationale: shows how to implement a kernel with a computation/memory configuration independent on the 
@@ -29,7 +29,7 @@
 //        6) consume data (in this case print result)
 //        7) free memory
 //        
-// #Compilation: nvcc -arch=sm_13 device-query.cu -o sum_vectors
+// #Compilation: nvcc -arch=sm_13 2_sum_vectors.cu -o sum_vectors
 //
 // #Execution: ./sum_vectors 
 //
@@ -57,20 +57,20 @@ typedef float real_t;
 // CUDA kernel invoked by CPU (host) code; return type must always be void
 __global__ void sum_vectors( const real_t* v1, const real_t* v2, real_t* out, size_t num_elements ) {
     // compute current thread id
-    int xIndex = blockIdx.x * blockDim.x + threadIdx.x;      	
+    int xIndex = blockIdx.x * blockDim.x + threadIdx.x;          
     // iterate over vector: grid can be smaller than vector, it is therefore
     // required that each thread iterate over more than one vector element
     while( xIndex < num_elements ) {
-    	out[ xIndex ] = v1[ xIndex ] + v2[ xIndex ];
-    	xIndex += gridDim.x * blockDim.x;
+        out[ xIndex ] = v1[ xIndex ] + v2[ xIndex ];
+        xIndex += gridDim.x * blockDim.x;
     }
 }
 
 
 //------------------------------------------------------------------------------
 int main( int , char**  ) {
-	
-    const int VECTOR_SIZE = 0xf0000 + 1; //vector size 65537
+    
+    const int VECTOR_SIZE = 0x10000 + 1; //vector size 65537
     const int NUMBER_OF_THREADS = VECTOR_SIZE / 4; //number elements processed in parallel
     const int SIZE = sizeof( real_t ) * VECTOR_SIZE; // total size in bytes
     const int THREADS_PER_BLOCK = 32; //number of gpu threads per block
@@ -90,24 +90,24 @@ int main( int , char**  ) {
     std::vector< real_t > vout( VECTOR_SIZE, 0.f ); //initialize all elements to 0
 
     // gpu allocated storage
-	real_t* dev_in1 = 0; //vector 1
-	real_t* dev_in2 = 0; //vector 2
-	real_t* dev_out = 0; //result value
+    real_t* dev_in1 = 0; //vector 1
+    real_t* dev_in2 = 0; //vector 2
+    real_t* dev_out = 0; //result value
     cudaMalloc( &dev_in1, SIZE );
-	cudaMalloc( &dev_in2, SIZE );
+    cudaMalloc( &dev_in2, SIZE );
     cudaMalloc( &dev_out, SIZE  );
     
     // copy data to GPU
-	cudaMemcpy( dev_in1, &v1[ 0 ], SIZE, cudaMemcpyHostToDevice );
-	cudaMemcpy( dev_in2, &v2[ 0 ], SIZE, cudaMemcpyHostToDevice );
+    cudaMemcpy( dev_in1, &v1[ 0 ], SIZE, cudaMemcpyHostToDevice );
+    cudaMemcpy( dev_in2, &v2[ 0 ], SIZE, cudaMemcpyHostToDevice );
 
-	// execute kernel
-	sum_vectors<<<BLOCK_SIZE, THREADS_PER_BLOCK>>>( dev_in1, dev_in2, dev_out, VECTOR_SIZE );
-	
-	// read back result
-	cudaMemcpy( &vout[ 0 ], dev_out, SIZE, cudaMemcpyDeviceToHost );
-	
-	// print first and last element of vector
+    // execute kernel
+    sum_vectors<<<BLOCK_SIZE, THREADS_PER_BLOCK>>>( dev_in1, dev_in2, dev_out, VECTOR_SIZE );
+    
+    // read back result
+    cudaMemcpy( &vout[ 0 ], dev_out, SIZE, cudaMemcpyDeviceToHost );
+    
+    // print first and last element of vector
     std::cout << "result: " << vout[ 0 ] << ".." << vout.back() << std::endl;
 
     // free memory
@@ -115,5 +115,5 @@ int main( int , char**  ) {
     cudaFree( dev_in2 );
     cudaFree( dev_out );
 
-	return 0;
+    return 0;
 }
