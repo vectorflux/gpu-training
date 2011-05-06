@@ -1,13 +1,13 @@
 // #CSCS CUDA Training 
 //
-// #Exercise 5 - (block) matrix-matrix multiply
+// #Exercise 6 - (block) matrix-matrix multiply with dynamically allocated shared memory
 //
 // #Author: Ugo Varetto
 //
 // #Goal: multiply two matrices make use of (block)shared memory to accelerate the computation
 //
-// #Rationale: shows how shared memory can be used to accelerate matrix-matrix
-//             operations   
+// #Rationale: shows how shared memory can be dynamically allocated at kernel launch and 
+//             used to accelerate matrix-matrix operations   
 
 // #Solution: copy matrix blocks into shared memory and perform matrix-matrix multiply
 //            on shared memory buffers
@@ -18,14 +18,14 @@
 //        4)  read initialized data back from GPU so that we can use the same data on the CPU       
 //        5)  create events
 //        6)  issue time record request on start event
-//        7)  launch kernel
+//        7)  launch kernel specified the amount of shared memory to use = 2 x block size bytes
 //        8)  issue time record request on stop event
 //        9)  synchronize stop event with end of kernel execution
 //        10) read data back and print upper left corner of result matrix
 //        11) perform computation on CPU and print upper left corner of result matrix
 //        12) [optional] compare results; to avoid using a big eps (>=10^-4) use double precision 
 //             
-// #Compilation: nvcc -arch=sm_13 5_matmul.cu -o matmul
+// #Compilation: nvcc -arch=sm_13 6_matmul-dynamic-shared-mem.cu -o matmul-dynamic-shared-mem
 //
 // #Execution: ./matmul
 //
@@ -48,8 +48,6 @@
 
 typedef float real_t;
 
-const size_t TILE_SIZE = 16;
-
 // return matrix element given block and indices of element in block
 __device__ real_t get_matrix_element( const real_t* m, //matrix
                                       int blockCol,    //column index of output block 
@@ -63,8 +61,14 @@ __device__ real_t get_matrix_element( const real_t* m, //matrix
 
 }
 
+// shared memory: it is allowed to have only a single shared memory buffer
+//                declared as a global variable; the size of such buffer
+//                is specified at kernel launch as the third parameter
+//                in the <<< >>> operator
+extern __shared__ real_t cache[];
+
 // compute block matrix multiply:
-// - matrix block size == TILE_SIZE == CUDA thread block size
+// - matrix block size == tile size == CUDA thread block size
 // - grid (blocks x threads per block) matches the output matrix layout
 // workflow: 
 // 1) copy block from input matrices into local cache buffers
@@ -80,22 +84,25 @@ __device__ real_t get_matrix_element( const real_t* m, //matrix
 __global__ void block_matmul( const real_t* m1, const real_t* m2, real_t* mout,
                               int m1_columns, int m2_columns  ) { 
                                                                       
-    __shared__ real_t M1[ TILE_SIZE ][ TILE_SIZE ];
-    __shared__ real_t M2[ TILE_SIZE ][ TILE_SIZE ];     
+    
+    const int TILE_COLUMNS = blockDim.x;
+    const int TILE_ROWS    = blockDim.y;
+    real_t* M1 = &cache[ 0 ];
+    real_t* M2 = &cache[ TILE_COLUMNS * TILE_ROWS];     
         
     const int blockRow = blockIdx.y; 
     const int blockCol = blockIdx.x;
     const int row = threadIdx.y;
     const int col = threadIdx.x;
     real_t out = 0.f;
-    for( int b = 0; b != m1_columns / TILE_SIZE; ++b ) {
+    for( int b = 0; b != m1_columns / TILE_COLUMNS; ++b ) {
           //copy data into shared memory
-        M1[ row ][ col ] = get_matrix_element( m1, b, blockRow, col, row, m1_columns );
-        M2[ row ][ col ] = get_matrix_element( m2, blockCol, b, col, row, m2_columns );
+          M1[ row * TILE_COLUMNS + col ] = get_matrix_element( m1, b, blockRow, col, row, m1_columns );
+          M2[ row * TILE_COLUMNS + col ] = get_matrix_element( m2, blockCol, b, col, row, m2_columns );
         __syncthreads(); // required to guarantee that data are computed before next step
                          // where a thread accesses data computed by other threads
-        for( int k = 0; k != TILE_SIZE; ++k ) {
-            out += M1[ row ][ k ] * M2[ k ][ col ];           
+        for( int k = 0; k != TILE_COLUMNS; ++k ) {
+            out += M1[ row * TILE_COLUMNS + k ] * M2[ k * TILE_COLUMNS + col ];           
         }
         __syncthreads(); // required to avoid that some threads start modifying
                          // data in cache before all threads have exited for loop    
@@ -169,6 +176,8 @@ int main(int argc, char** argv ) {
     const int COLUMNS =  BLOCKS.x * THREADS_PER_BLOCK.x;
     const size_t ARRAY_SIZE = ROWS * COLUMNS;
     const size_t BYTE_SIZE = ARRAY_SIZE * sizeof( real_t );
+    // allocate enough memory to store one block from matrix 1 and one block from matrix 2
+    const size_t SHARED_MEMORY_SIZE = 2 * THREADS_PER_BLOCK.x * THREADS_PER_BLOCK.y * sizeof( real_t );  
       
     // device storage for gpu computation
     real_t* dev_m1 = 0;
@@ -212,7 +221,7 @@ int main(int argc, char** argv ) {
 
 #ifdef BLOCK_MULTIPLY    
     // execute kernel
-    block_matmul<<<BLOCKS, THREADS_PER_BLOCK>>>( dev_m1, dev_m2, dev_mout,  COLUMNS, COLUMNS );
+    block_matmul<<<BLOCKS, THREADS_PER_BLOCK, SHARED_MEMORY_SIZE >>>( dev_m1, dev_m2, dev_mout,  COLUMNS, COLUMNS );
 #else  
     matmul<<<BLOCKS, THREADS_PER_BLOCK>>>( dev_m1, dev_m2, dev_mout,  COLUMNS, COLUMNS );
 #endif  
