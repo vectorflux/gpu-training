@@ -54,7 +54,7 @@ typedef float real_t;
 
 // In this case the kernel assumes that the computation was started with enough threads to cover the entire domain.
 // This is the preferred solution provided there are enough threads to cover the entire domain which might not be the
-// case in case of a 2D grid layout (max number of threads = 512 threads per block x 65536  blocks = 2^25 = 32 Mi threads)
+// case in case of a 1D grid layout (max number of threads = 512 threads per block x 65536  blocks = 2^25 = 32 Mi threads)
 __global__ void sum_vectors( const real_t* v1, const real_t* v2, real_t* out, size_t num_elements ) {
     // compute current thread id
     const int xIndex = blockIdx.x * blockDim.x + threadIdx.x;          
@@ -75,7 +75,7 @@ int main( int , char**  ) {
     
     // block size: the number of threads per block multiplied by the number of blocks
     // must be at least equal to NUMBER_OF_THREADS 
-    const int BLOCK_SIZE = ( VECTOR_SIZE + THREADS_PER_BLOCK - 1 ) / THREADS_PER_BLOCK;
+    const int NUMBER_OF_BLOCKS = ( VECTOR_SIZE + THREADS_PER_BLOCK - 1 ) / THREADS_PER_BLOCK;
     // if number of threads is not evenly divisable by the number of threads per block 
     // we need an additional block; the above code can be rewritten as
     // if( NUMBER_OF_THREADS % THREADS_PER_BLOCK == 0) BLOCK_SIZE = NUMBER_OF_THREADS / THREADS_PER_BLOCK;
@@ -100,7 +100,7 @@ int main( int , char**  ) {
     cudaMemcpy( dev_in2, &v2[ 0 ], SIZE, cudaMemcpyHostToDevice );
 
     // execute kernel with num threads >= num elements
-    sum_vectors<<<BLOCK_SIZE, THREADS_PER_BLOCK>>>( dev_in1, dev_in2, dev_out, VECTOR_SIZE );
+    sum_vectors<<<NUMBER_OF_BLOCKS, THREADS_PER_BLOCK>>>( dev_in1, dev_in2, dev_out, VECTOR_SIZE );
     
     // read back result
     cudaMemcpy( &vout[ 0 ], dev_out, SIZE, cudaMemcpyDeviceToHost );
