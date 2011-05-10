@@ -1,6 +1,6 @@
 // #CSCS CUDA Training 
 //
-// #Exercise 7 - dot product with atomics - only works on Fermi and later
+// #Exercise 4.1 - dot product with atomics - only works on Fermi and later
 //
 // #Author: Ugo Varetto
 //
@@ -23,7 +23,9 @@
 //        6) read data back 
 //        7) free memory 
 //             
-// #Compilation: nvcc -arch=sm_20 7_parallel-dot-product-atomics.cu -o dot-product-atomics
+// #Compilation: 
+//               [correct] nvcc -arch=sm_20 4_1_parallel-dot-product-atomics.cu -o dot-product-atomics
+//               [wrong]   nvcc -DNO_SYNC -arch=sm_20 4_1_parallel-dot-product-atomics.cu -o dot-product-atomics 
 //
 // #Execution: ./dot-product-atomics
 //
@@ -47,8 +49,6 @@
 #include <vector>
 #include <iostream>
 
-// comment following line to remove serialized access to shared data
-#define CORRECT_SYNC
 
 typedef float real_t;
 
@@ -68,7 +68,7 @@ __global__ void full_dot( const real_t* v1, const real_t* v2, real_t* out, int N
         __syncthreads();
         i /= 2; //not sure bitwise operations are actually faster
     }
-#ifdef CORRECT_SYNC // sync access to shared data; serialized access
+#ifndef NO_SYNC // serialized access to shared data; 
     if( threadIdx.x == 0 ) atomicAdd( out, cache[ 0 ] );
 #else // no sync, what most likely happens is:
       // 1) all threads read 0
