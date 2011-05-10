@@ -24,6 +24,10 @@
 //
 // #Execution: ./dot_product
 //
+// #Note: as of CUDA 3.2 it seems that kernels do not stall anymore when invoking
+//        __syncthreads from within an if block dependent on the thread id;
+//       #see http://forums.nvidia.com/index.php?showtopic=178284
+//
 // #Note: the code is C++ also because the default compilation mode for CUDA is C++, all functions
 //        are named with C++ convention and the syntax is checked by default against C++ grammar rules 
 //
