@@ -46,7 +46,6 @@
 #include <cuda.h>
 #include <vector>
 #include <iostream>
-#include <numeric>
 
 // comment following line to remove serialized access to shared data
 #define CORRECT_SYNC
