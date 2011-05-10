@@ -35,8 +35,6 @@
 //        on students' laptops; it's the identifier for the architecture before Fermi (sm_20)
 //
 // #Note: -arch=sm_13 is the lowest architecture version that supports double precision
-//
-// #Note: the example can be extended to read configuration data and matrix size from the command line
 
 #include <cuda.h>
 #include <vector>
