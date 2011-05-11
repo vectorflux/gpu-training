@@ -118,7 +118,7 @@ int main(int argc, char** argv ) {
     float elapsed = 0.f;
     cudaEventElapsedTime( &elapsed, start, stop );
     
-    std::cout << "Elapsed time (ms): " << elapsed / 1000 << std::endl;
+    std::cout << "Elapsed time (ms): " << elapsed << std::endl;
 
     // copy output data from device(gpu) to host(cpu)
     cudaMemcpy( &outmatrix[ 0 ], dev_out, SIZE, cudaMemcpyDeviceToHost );
