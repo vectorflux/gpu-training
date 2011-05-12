@@ -1,4 +1,3 @@
-// WORK IN PROGRESS !!
 // #CSCS CUDA Training 
 //
 // #Exercise 2.2 - sum vectors, fix number of threads per block, overlap communication and computation
@@ -55,7 +54,6 @@
 //
 // #Note: the example can be extended to read configuration data and array size from the command line and
 //        investigating the optimal configuration for number of streams and chunk size
-
 
 
 #include <cuda.h>
