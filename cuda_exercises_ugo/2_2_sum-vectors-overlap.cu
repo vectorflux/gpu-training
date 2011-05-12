@@ -77,13 +77,6 @@ __global__ void sum_vectors( const real_t* v1, const real_t* v2, real_t* out, si
     if( xIndex < num_elements ) out[ xIndex ] = v1[ xIndex ] + v2[ xIndex ];
 }
 
-// generate constant element
-struct Gen {
-    real_t v_;
-    Gen( real_t v ) : v_( v ) {} 
-    real_t operator()() const { return v_; }
-};
-
 
 //------------------------------------------------------------------------------
 int main( int , char**  ) {
@@ -123,6 +116,13 @@ int main( int , char**  ) {
     cudaHostAlloc( &v1,   FULL_BYTE_SIZE, cudaHostAllocDefault );
     cudaHostAlloc( &v2,   FULL_BYTE_SIZE, cudaHostAllocDefault );
     cudaHostAlloc( &vout, FULL_BYTE_SIZE, cudaHostAllocDefault );  
+
+    // generate constant element
+    struct Gen {
+        real_t v_;
+        Gen( real_t v ) : v_( v ) {} 
+        real_t operator()() const { return v_; }
+    };
 
     std::generate( v1,   v1   + VECTOR_SIZE, Gen( 1.0f ) );
     std::generate( v2,   v2   + VECTOR_SIZE, Gen( 2.0f ) );
