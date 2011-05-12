@@ -1,36 +1,50 @@
 // WORK IN PROGRESS !!
 // #CSCS CUDA Training 
 //
-// #Exercise 2_2 - sum vectors, fix number of threads per block, overlap communication and computation
+// #Exercise 2.2 - sum vectors, fix number of threads per block, overlap communication and computation
 //
 // #Author Ugo Varetto
 //
-// #Goal: compute the scalar product of two 1D vectors using a number of threads greater than or equal to
-//        the number of vector elements and not evenly divisible by the block size 
-
-// #Rationale: shows how to implement a kernel with a computation/memory configuration that matches
-//             the domain layout. Each threads computes at most one element of the output vector.
+// #Goal: compute the sum of two vectors overlapping communication and computation
 //
-// #Solution: 
-//          . number of elements in the output array = E
-//          . number of threads per block = Tb          
-//          The number of blocks is = ( E + Tb - 1 ) div Tb where 'div' is the integer division operator   
-//          Each thread on the GPU computes one(thread id < vector size) or zero( thread id >= vector size)
-//          elements of the output vector.        
+// #Rationale: using streams it is possible to subdivide computation and memory transfer
+//             operations in separate execution queue which can be executed in parallel;
+//             specifically it is possible to execute kernel computation while concurrently
+//             transferring data between host and device
 //
+// #Solution: subdivide domain into chunks, iterate over the array and at each
+//            iteration issue asynchronous calls to memcpy and kernels
+//            (always asynchronous) in separate streams. Note that
+//            on the GPU operations are split into one queue per operation type
+//            specifically: all copy operations from different streams go into the same
+//            queue in the same order as specified by client code, likewise all
+//            kernel invocations go into the same 'kernel invocation queue'.
+//            Now: if any copy operation (regardless of the associated stream) depends
+//            on e.g. a kernel execution then all subsequent copy operations in all streams must wait
+//            for the dependent copy operation to complete before they are executed; this means
+//            that client code is responsible for properly queueing operations to avoid conflicts. 
 //
-// #Code: typical flow:
+// #Code: flow:
 //        1) compute launch grid configuration
 //        2) allocate data on host(cpu) and device(gpu)
 //        3) copy data from host ro device
-//        4) launch kernel
-//        5) read data back
-//        6) consume data (in this case print result)
-//        7) free memory
+//        4) create streams
+//        5) iterate over array elements performing memory transfers and
+//           kernel invocation: at each iteration the number of elements
+//           being processed by separate streams is   VECTOR_CHUNK_SIZE x NUMBER_OF_STREAMS
+//        6) synchronize streams to wait for end of execution 
+//        7) consume data (in this case print result)
+//        8) free memory, streams and events (used to time operations)
 //        
-// #Compilation: nvcc -arch=sm_13 2_0_sum_vectors.cu -o sum_vectors_1
+// #Compilation: [optimized] nvcc -arch=sm_13 2_2_sum-vectors-overlap.cu -o sum_vectors-overlap
+//               [wrong ordering, no overlap] nvcc -DSTREAM_NO_OVERLAP -arch=sm_13 2_2_sum-vectors-overlap.cu -o sum_vectors-overlap
+//                 
 //
-// #Execution: ./sum_vectors_1 
+// #Execution: ./sum-vectors-overlap
+//             note that you might experience some hysteresis! on Win 7 64bit, CUDA RC2 at each compilation
+//             it takes a few runs before the new ordering scheme becomes active!!! 
+//
+// #Note: page locked memory required for async/stream operations
 //
 // #Note: the code is C++ also because the default compilation mode for CUDA is C++, all functions
 //        are named with C++ convention and the syntax is checked by default against C++ grammar rules 
@@ -39,9 +53,9 @@
 //        on students' laptops; it's the identifier for the architecture before Fermi (sm_20)
 // #Note: -arch=sm_13 is the lowest architecture version that supports double precision
 //
-// #Note: the example can be extended to read configuration data and array size from the command line
-//        and could be timed to investigate how performance is dependent on single/double precision
-//        and thread block size
+// #Note: the example can be extended to read configuration data and array size from the command line and
+//        investigating the optimal configuration for number of streams and chunk size
+
 
 
 #include <cuda.h>
@@ -50,6 +64,7 @@
 #include <iomanip>
 #include <sstream>
 #include <string>
+#include <algorithm>
 
 typedef float real_t;
 
@@ -64,96 +79,141 @@ __global__ void sum_vectors( const real_t* v1, const real_t* v2, real_t* out, si
     if( xIndex < num_elements ) out[ xIndex ] = v1[ xIndex ] + v2[ xIndex ];
 }
 
-
+// generate constant element
+struct Gen {
+    real_t v_;
+    Gen( real_t v ) : v_( v ) {} 
+    real_t operator()() const { return v_; }
+};
 
 
 //------------------------------------------------------------------------------
 int main( int , char**  ) {
     
-    const int VECTOR_SIZE = 0x10000; //vector size 65536
+    //first task: verify support for overlap of communication and computation
+    cudaDeviceProp prop = cudaDeviceProp();
+    int currentDevice = -1;
+    cudaGetDevice( &currentDevice );
+    cudaGetDeviceProperties( &prop, currentDevice );
+    if( !prop.deviceOverlap ) {
+        std::cout << "Device doesn't handle computation-communication overlap" << std::endl;
+        return 1;
+    }
+
+    const int VECTOR_SIZE = 0x1000000; //vector size 16Mi
     const int NUMBER_OF_CHUNKS = 4;
     const int VECTOR_CHUNK_SIZE = VECTOR_SIZE / NUMBER_OF_CHUNKS;
-    const int FULL_SIZE = sizeof( real_t ) * VECTOR_SIZE;
-    const int CHUNK_SIZE = FULL_SIZE / NUMBER_OF_CHUNKS; // total size in bytes
-    const int THREADS_PER_BLOCK = 32; //number of gpu threads per block
-    
+    const int FULL_BYTE_SIZE = sizeof( real_t ) * VECTOR_SIZE;
+    const int CHUNK_BYTE_SIZE = FULL_BYTE_SIZE / NUMBER_OF_CHUNKS; // total size in bytes
+    const int THREADS_PER_BLOCK = 256; //number of gpu threads per block
+    const int NUMBER_OF_STREAMS = 2;
+
     // block size: the number of threads per block multiplied by the number of blocks
     // must be at least equal to NUMBER_OF_THREADS 
-    const int NUMBER_OF_BLOCKS = ( VECTOR_SIZE + THREADS_PER_BLOCK - 1 ) / THREADS_PER_BLOCK;
+    const int NUMBER_OF_BLOCKS = ( VECTOR_CHUNK_SIZE + THREADS_PER_BLOCK - 1 ) / THREADS_PER_BLOCK;
     // if number of threads is not evenly divisable by the number of threads per block 
     // we need an additional block; the above code can be rewritten as
     // if( NUMBER_OF_THREADS % THREADS_PER_BLOCK == 0) BLOCK_SIZE = NUMBER_OF_THREADS / THREADS_PER_BLOCK;
     // else BLOCK_SIZE = NUMBER_OF_THREADS / THREADS_PER_BLOCK + 1 
 
-    // host allocated storage; page locked memory required! 
-    std::vector< real_t > init  ( VECTOR_SIZE, 1.f ); //initialize all elements to 1
+    // host allocated storage; page locked memory required for async/stream operations
     real_t* v1   = 0;
     real_t* v2   = 0;
     real_t* vout = 0;
-     
-    cudaHostAlloc( &v1, FULL_SIZE, cudaHostAllocDefault );
-    cudaHostAlloc( &v2, FULL_SIZE, cudaHostAllocDefault );
-    cudaHostAlloc( &vout, FULL_SIZE, cudaHostAllocDefault );  
-
-    std::copy( init.begin(), init.end(), v1 );
-    std::copy( init.begin(), init.end(), v2 );
-
-    // gpu allocated storage
-    real_t* dev_in10 = 0;
-    real_t* dev_in11 = 0;
-    real_t* dev_in20 = 0;
-    real_t* dev_in21 = 0;
-    real_t* dev_out0 = 0;
-    real_t* dev_out1 = 0;
-
-    cudaMalloc( &dev_in10, CHUNK_SIZE );
-    cudaMalloc( &dev_in11, CHUNK_SIZE );
-    cudaMalloc( &dev_in20, CHUNK_SIZE );
-    cudaMalloc( &dev_in21, CHUNK_SIZE );
-    cudaMalloc( &dev_out0, CHUNK_SIZE );
-    cudaMalloc( &dev_out1, CHUNK_SIZE );
     
-    // streams
+    // page locked allocation 
+    cudaHostAlloc( &v1,   FULL_BYTE_SIZE, cudaHostAllocDefault );
+    cudaHostAlloc( &v2,   FULL_BYTE_SIZE, cudaHostAllocDefault );
+    cudaHostAlloc( &vout, FULL_BYTE_SIZE, cudaHostAllocDefault );  
+
+    std::generate( v1,   v1   + VECTOR_SIZE, Gen( 1.0f ) );
+    std::generate( v2,   v2   + VECTOR_SIZE, Gen( 2.0f ) );
+    std::generate( vout, vout + VECTOR_SIZE, Gen(  0.f ) );
+
+    // gpu allocated storage: number of arrays == number of streams == 2
+    real_t* dev_in00 = 0; //v1
+    real_t* dev_in01 = 0; //v1
+    real_t* dev_in10 = 0; //v2
+    real_t* dev_in11 = 0; //v2
+    real_t* dev_out0 = 0; //vout
+    real_t* dev_out1 = 0; //vout
+
+    cudaMalloc( &dev_in00, CHUNK_BYTE_SIZE );
+    cudaMalloc( &dev_in01, CHUNK_BYTE_SIZE );
+    cudaMalloc( &dev_in10, CHUNK_BYTE_SIZE );
+    cudaMalloc( &dev_in11, CHUNK_BYTE_SIZE );
+    cudaMalloc( &dev_out0, CHUNK_BYTE_SIZE );
+    cudaMalloc( &dev_out1, CHUNK_BYTE_SIZE );
+    
+    // streams; each streams is associated with a separate execution queue
     cudaStream_t stream0 = cudaStream_t();
     cudaStream_t stream1 = cudaStream_t();
     cudaStreamCreate( &stream0 );
     cudaStreamCreate( &stream1 );
 
-    // events
+    // events; for timing
     cudaEvent_t start = cudaEvent_t();
     cudaEvent_t stop  = cudaEvent_t();
     cudaEventCreate( &start );
+    cudaEventCreate( &stop );
 
+    //record start
+    cudaEventRecord( start, 0 );
 
+#if defined( STREAM_NO_OVERLAP )
+    // computation (wrong order): 
+    for( int i = 0; i < VECTOR_SIZE; i += NUMBER_OF_STREAMS * VECTOR_CHUNK_SIZE ) {
+        cudaMemcpyAsync( dev_in00, v1 + i, CHUNK_BYTE_SIZE, cudaMemcpyHostToDevice, stream0 );
+        cudaMemcpyAsync( dev_in10, v2 + i, CHUNK_BYTE_SIZE, cudaMemcpyHostToDevice, stream0 );
+        sum_vectors<<< NUMBER_OF_BLOCKS, THREADS_PER_BLOCK, 0, stream0 >>>( dev_in00, dev_in10, dev_out0, VECTOR_CHUNK_SIZE );
+        cudaMemcpyAsync( vout + i, dev_out0, CHUNK_BYTE_SIZE, cudaMemcpyDeviceToHost, stream0 );
 
-    // computation (wrong order)
-    for( int i = 0; i < VECTOR_SIZE; i += 2 * VECTOR_CHUNK_SIZE ) {
-        cudaMemcpyAsync( dev_in10, v1 + i, SIZE, cudaMemcpyHostToDevice, stream0 );
-        cudaMemcpyAsync( dev_in20, v2 + i, SIZE, cudaMemcpyHostToDevice, stream0 );
-        sum_vectors<<< NUMBER_OF_BLOCKS, THREADS_PER_BLOCK, 0, stream0 >>>( dev_in10, dev_in20, dev_out0, VECTOR_SIZE );
-        cudaMemcpyAsync( vout + i, dev_out0, SIZE, cudaMemcpyDeviceToHost, stream0 );
-
-        cudaMemcpyAsync( dev_in11, v1 + i + CHUNK_SIZE, SIZE, cudaMemcpyHostToDevice, stream1 );
-        cudaMemcpyAsync( dev_in21, v2 + i + CHUNK_SIZE, SIZE, cudaMemcpyHostToDevice, stream1 );
-        sum_vectors<<< NUMBER_OF_BLOCKS, THREADS_PER_BLOCK, 0, stream1 >>>( dev_in11, dev_in21, dev_out1, VECTOR_SIZE );
-        cudaMemcpyAsync( vout + i + N, dev_out1, SIZE, cudaMemcpyDeviceToHost, stream1 );
+        cudaMemcpyAsync( dev_in01, v1 + i + VECTOR_CHUNK_SIZE, CHUNK_BYTE_SIZE, cudaMemcpyHostToDevice, stream1 );
+        cudaMemcpyAsync( dev_in11, v2 + i + VECTOR_CHUNK_SIZE, CHUNK_BYTE_SIZE, cudaMemcpyHostToDevice, stream1 );
+        sum_vectors<<< NUMBER_OF_BLOCKS, THREADS_PER_BLOCK, 0, stream1 >>>( dev_in01, dev_in11, dev_out1, VECTOR_CHUNK_SIZE );
+        cudaMemcpyAsync( vout + i + VECTOR_CHUNK_SIZE, dev_out1, CHUNK_BYTE_SIZE, cudaMemcpyDeviceToHost, stream1 );
     }
+#else
+    // computation (correct order, interleaved or not makes littel difference)
+    for( int i = 0; i < VECTOR_SIZE; i += NUMBER_OF_STREAMS * VECTOR_CHUNK_SIZE ) {
+        cudaMemcpyAsync( dev_in00, v1 + i, CHUNK_BYTE_SIZE, cudaMemcpyHostToDevice, stream0 );
+        cudaMemcpyAsync( dev_in01, v1 + i + VECTOR_CHUNK_SIZE, CHUNK_BYTE_SIZE, cudaMemcpyHostToDevice, stream1 );
+        cudaMemcpyAsync( dev_in10, v2 + i, CHUNK_BYTE_SIZE, cudaMemcpyHostToDevice, stream0 );
+        cudaMemcpyAsync( dev_in11, v2 + i + VECTOR_CHUNK_SIZE, CHUNK_BYTE_SIZE, cudaMemcpyHostToDevice, stream1 );
+        sum_vectors<<< NUMBER_OF_BLOCKS, THREADS_PER_BLOCK, 0, stream0 >>>( dev_in00, dev_in10, dev_out0, VECTOR_CHUNK_SIZE );  
+        sum_vectors<<< NUMBER_OF_BLOCKS, THREADS_PER_BLOCK, 0, stream1 >>>( dev_in01, dev_in11, dev_out1, VECTOR_CHUNK_SIZE );
+        cudaMemcpyAsync( vout + i, dev_out0, CHUNK_BYTE_SIZE, cudaMemcpyDeviceToHost, stream0 );
+        cudaMemcpyAsync( vout + i + VECTOR_CHUNK_SIZE, dev_out1, CHUNK_BYTE_SIZE, cudaMemcpyDeviceToHost, stream1 );
+    }
+#endif
+    
+    cudaEventRecord( stop, 0 );
     cudaStreamSynchronize( stream0 );
     cudaStreamSynchronize( stream1 );
-    
+    cudaEventSynchronize( stop );
+    float e = float();
+    cudaEventElapsedTime( &e, start, stop );
+    std::cout << "elapsed time (ms): " << e << std::endl;   
     // print first and last element of vector
     std::cout << "result: " << vout[ 0 ] << ".." << vout[ VECTOR_SIZE - 1 ] << std::endl;
+     
 
     // free memory
+    cudaFree( dev_in00 );
+    cudaFree( dev_in01 );
     cudaFree( dev_in10 );
     cudaFree( dev_in11 );
-    cudaFree( dev_in20 );
-    cudaFree( dev_in21 );
     cudaFree( dev_out0 );
     cudaFree( dev_out1 );
     cudaFreeHost( v1 );
     cudaFreeHost( v2 );
     cudaFreeHost( vout );
+    // release streams
+    cudaStreamDestroy( stream0 );
+    cudaStreamDestroy( stream1 ); 
+    // release events
+    cudaEventDestroy( start );
+    cudaEventDestroy( stop  );
 
     return 0;
 }
