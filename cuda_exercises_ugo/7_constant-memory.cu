@@ -79,7 +79,7 @@ __global__ void weight_mul_broadcast( const real_t* vin, real_t* out ) {
     // compute current thread id
     const int xBlock = blockIdx.x * blockDim.x;
     const int xIndex = xBlock + threadIdx.x;          
-    out[ xIndex ] = vin[ xIndex ] * weights[ blockIdx.x + threadIdx.x / 16 ];
+    out[ xIndex ] = vin[ xIndex ] * weights[ xBlock + threadIdx.x / 16 ];
 }
 
 // out[ global thread id ] = in[ global thread id ] x weights[ global thread id ];
