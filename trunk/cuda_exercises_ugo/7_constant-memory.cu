@@ -54,11 +54,9 @@
 #include <cuda.h>
 #include <vector>
 #include <iostream>
-#include <iomanip>
 #include <sstream>
-#include <string>
 #include <algorithm>
-
+#include <iterator>
 
 typedef float real_t;
 
