@@ -104,7 +104,7 @@ __global__ void weight_mul_global_separate( const real_t* vin, const real_t* w, 
 }
 
 // same as weight_mul_broadcast but reading weights from global memory
-__global__ void weight_mul_global_bcast( const real_t* vin, const real_t* w, real_t* out ) {
+__global__ void weight_mul_global_broadcast( const real_t* vin, const real_t* w, real_t* out ) {
     // compute current thread id
     const int xBlock = blockIdx.x * blockDim.x;
     const int xIndex = xBlock + threadIdx.x;              
@@ -185,7 +185,7 @@ int main( int , char**  ) {
     std::cout << " ...\n" << std::endl;
 
     cudaEventRecord( start, 0 );
-    weight_mul_global_bcast<<< NUMBER_OF_BLOCKS, THREADS_PER_BLOCK >>>( dev_vin, dev_w, dev_vout );
+    weight_mul_global_broadcast<<< NUMBER_OF_BLOCKS, THREADS_PER_BLOCK >>>( dev_vin, dev_w, dev_vout );
     cudaEventRecord( stop, 0 );
     cudaEventSynchronize( stop );
     cudaEventElapsedTime( &e, start, stop );
