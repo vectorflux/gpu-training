@@ -48,7 +48,7 @@
 
 typedef float real_t;
 
-const size_t TILE_SIZE = 16;
+const size_t TILE_SIZE = 4;//16;
 
 // return matrix element given block and indices of element in block
 __device__ real_t get_matrix_element( const real_t* m, //matrix
@@ -163,8 +163,8 @@ void print_matrix( const real_t* m, int r, int c, int stride ) {
 int main(int argc, char** argv ) {
     
     //1024 x 1024 matrices
-    const dim3 BLOCKS( 64, 64 );
-    const dim3 THREADS_PER_BLOCK( 16, 16 ); 
+    const dim3 BLOCKS( 16, 16 );
+    const dim3 THREADS_PER_BLOCK( 4, 4 ); 
     const int ROWS = BLOCKS.y * THREADS_PER_BLOCK.y;
     const int COLUMNS =  BLOCKS.x * THREADS_PER_BLOCK.x;
     const size_t ARRAY_SIZE = ROWS * COLUMNS;
