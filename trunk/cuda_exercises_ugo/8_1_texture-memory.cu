@@ -30,18 +30,21 @@
 //
 // #Execution: ./texture-memory-2 
 //
-// #Note: textures do not support 64 bit (double precision) floating point data  
+// #Note: textures do not support 64 bit (double precision) floating point data that's why
+//        a version with local caching it's shown;
+//        Global time / Cached time == Cached time / Texture time ~= 2
 //
 // #Note: the code is C++ also because the default compilation mode for CUDA is C++, all functions
-//        are named with C++ convention and the syntax is checked by default against C++ grammar rules 
+//        are named with C++ convention and the syntax is checked by default against C++ grammar 
+//        rules 
 //
 // #Note: -arch=sm_13 allows the code to run on every card available on Eiger and possibly even
 //        on students' laptops; it's the identifier for the architecture before Fermi (sm_20)
 // #Note: -arch=sm_13 is the lowest architecture version that supports double precision
 //
-// #Note: the example can be extended to read configuration data and array size from the command line
-//        and could be timed to investigate how performance is dependent on single/double precision
-//        and thread block size
+// #Note: the example can be extended to read configuration data and array size from the command
+//        line and could be timed to investigate how performance is dependent on single/double
+//        precision and thread block size
 
 
 #include <cuda.h>
@@ -185,6 +188,7 @@ __device__ real_t get_grid_element( const real_t* grid,
 // threads + half stencil edge X threads + half stencil edge + stencil buffer size
 __shared__ real_t cache[];
 
+
 __global__ void apply_stencil_cached( const real_t* gridIn, 
                                       const real_t* stencilIn,
                                       real_t* gridOut,
@@ -208,39 +212,47 @@ __global__ void apply_stencil_cached( const real_t* gridIn,
     }
        
     // 1) copy into shared memory; shared memory is 
-    //    ( blockDim.x + halfStencilSize ) x ( blockDim.x + halfStencilSize )
+    //    ( blockDim.x + halfStencilSize x 2 ) x ( blockDim.x + halfStencilSize x 2 )
+    // move to upper left corner of local grid
     const int row = threadIdx.y + halfStencilSize;
     const int col = threadIdx.x + halfStencilSize;
-    // corner ?
-    if( ( row < halfStencilSize || row >= tileNumRows - halfStencilSize ) &&
-        ( col < halfStencilSize || col >= tileNumColumns - halfStencilSize ) ) {
+    // if corner copy data into corners of halo region
+    if( ( threadIdx.x < halfStencilSize || threadIdx.x >= blockDim.x - halfStencilSize ) &&
+        ( threadIdx.y < halfStencilSize || threadIdx.y >= blockDim.y - halfStencilSize ) ) {
     
-        int roff = -halfStencilSize;
-        int coff = -halfStencilSize;
-        if( row >= tileNumRows - halfStencilSize )    roff = blockDim.y;
-        if( col >= tileNumColumns - halfStencilSize ) coff = blockDim.x;
+        int coff = 0;
+        int roff = 0;
+        if( threadIdx.y < halfStencilSize ) roff = -halfStencilSize;
+        else if( threadIdx.y >= blockDim.y - halfStencilSize ) roff = halfStencilSize;
+        if( threadIdx.x < halfStencilSize ) coff = -halfStencilSize;
+        else if( threadIdx.x >= blockDim.x - halfStencilSize ) coff = halfStencilSize;
         localGrid[ ( row + roff ) * tileNumColumns + ( col + coff )  ] = 
             get_grid_element( gridIn, gridI + roff, gridJ + coff, gridNumRows, gridNumColumns );
            
     }
-    
+    // copy element from grid
     localGrid[ row * tileNumColumns + col ] =
         get_grid_element( gridIn,  gridI, gridJ, gridNumRows, gridNumColumns );
+    // if row < half stencil edge size also copy element into upper and lower sides of halo region
     if( threadIdx.y < halfStencilSize ) {
         localGrid[ ( row - halfStencilSize ) * tileNumColumns + col ] =
-            get_grid_element( gridIn,  gridI - halfStencilSize, gridJ, gridNumRows, gridNumColumns );
+            get_grid_element( gridIn,  gridI - halfStencilSize, gridJ, gridNumRows,
+                              gridNumColumns );
         localGrid[ ( row + blockDim.y ) * tileNumColumns + col ] =
-            get_grid_element( gridIn,  gridI + blockDim.y, gridJ, gridNumRows, gridNumColumns );             
+            get_grid_element( gridIn,  gridI + blockDim.y, gridJ, gridNumRows,
+                              gridNumColumns );             
     }
+    // if column < half stencil edge size also copy element into left and right sides of halo region
     if( threadIdx.x < halfStencilSize ) {
         localGrid[ row * tileNumColumns + col - halfStencilSize ] =
-            get_grid_element( gridIn,  gridI, gridJ - halfStencilSize, gridNumRows, gridNumColumns );
+            get_grid_element( gridIn,  gridI, gridJ - halfStencilSize, gridNumRows,
+                              gridNumColumns );
         localGrid[ row * tileNumColumns + col + blockDim.x ] =
             get_grid_element( gridIn,  gridI, gridJ + blockDim.x, gridNumRows, gridNumColumns );            
     }
-    
+    // wait until local cache is filled
     __syncthreads();
-                   
+    // apply stencil to local (cached) grid               
     const int soff = halfStencilSize;
     real_t s = 0.f; 
     for( int i = -halfStencilSize; i <= halfStencilSize; ++i ) {
@@ -250,6 +262,7 @@ __global__ void apply_stencil_cached( const real_t* gridIn,
             s += localGrid[ si * tileNumColumns + sj ] * stencil[ (i+soff)*stencilSize + (j+soff)];
         }
     }
+    // write result into output grid
     gridOut[ gridI * gridNumColumns + gridJ ] = s;
 }
 
@@ -293,7 +306,6 @@ __global__ void init_grid( real_t* grid ) {
     grid[ gridI * stride + gridJ ] = real_t( ( gridI + gridJ ) % 2 );                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
 }
 
-#define p std::cout << cudaGetErrorString( cudaGetLastError() ) << ' ' << __LINE__ - 1 << std::endl;
 //------------------------------------------------------------------------------
 int main( int , char**  ) {
     
@@ -309,11 +321,14 @@ int main( int , char**  ) {
     
     // block size: the number of threads per block multiplied by the number of blocks
     // must be at least equal to NUMBER_OF_THREADS 
-    const int DEVICE_GRID_NUM_ROWS    = ( GRID_NUM_ROWS    + DEVICE_BLOCK_NUM_ROWS    - 1 ) / DEVICE_BLOCK_NUM_ROWS;
-    const int DEVICE_GRID_NUM_COLUMNS = ( GRID_NUM_COLUMNS + DEVICE_BLOCK_NUM_COLUMNS - 1 ) / DEVICE_BLOCK_NUM_COLUMNS;
+    const int DEVICE_GRID_NUM_ROWS    = 
+        ( GRID_NUM_ROWS    + DEVICE_BLOCK_NUM_ROWS    - 1 ) / DEVICE_BLOCK_NUM_ROWS;
+    const int DEVICE_GRID_NUM_COLUMNS = 
+        ( GRID_NUM_COLUMNS + DEVICE_BLOCK_NUM_COLUMNS - 1 ) / DEVICE_BLOCK_NUM_COLUMNS;
     // if number of threads is not evenly divisable by the number of threads per block 
     // we need an additional block; the above code can be rewritten as
-    // if( NUMBER_OF_THREADS % THREADS_PER_BLOCK == 0) BLOCK_SIZE = NUMBER_OF_THREADS / THREADS_PER_BLOCK;
+    // if( NUMBER_OF_THREADS % THREADS_PER_BLOCK == 0) 
+    //     BLOCK_SIZE = NUMBER_OF_THREADS / THREADS_PER_BLOCK;
     // else BLOCK_SIZE = NUMBER_OF_THREADS / THREADS_PER_BLOCK + 1 
  
     //host allocated storage
@@ -363,7 +378,8 @@ int main( int , char**  ) {
     // read back result
     cudaMemcpy( &host_grid_out[ 0 ], dev_grid_out, GRID_BYTE_SIZE, cudaMemcpyDeviceToHost );
     // print grid
-    std::cout << "Global memory - result:  " << host_grid_out.front() << ".." << host_grid_out.back() << std::endl;
+    std::cout << "Global memory - result:  " << host_grid_out.front() << ".." 
+              << host_grid_out.back() << std::endl;
     std::cout << "Time:   " << e << " ms\n" << std::endl; 
 
     //--------------------------------------------------------------------------
@@ -377,9 +393,11 @@ int main( int , char**  ) {
 #endif                                                      
     // bind textures to pre-allocated storage
     int texturePitch = sizeof( real_t ) * GRID_NUM_COLUMNS;
-    cudaBindTexture2D( 0, &gridInTex,   dev_grid_in, &cd, GRID_NUM_COLUMNS, GRID_NUM_ROWS, texturePitch );
+    cudaBindTexture2D( 0, &gridInTex,   dev_grid_in, &cd, GRID_NUM_COLUMNS,
+                       GRID_NUM_ROWS, texturePitch );
     texturePitch = sizeof( real_t ) * STENCIL_EDGE_LENGTH;
-    cudaBindTexture2D( 0, &stencilTex,  dev_stencil, &cd, STENCIL_EDGE_LENGTH, STENCIL_EDGE_LENGTH, texturePitch );                                                  
+    cudaBindTexture2D( 0, &stencilTex,  dev_stencil, &cd, STENCIL_EDGE_LENGTH,
+                       STENCIL_EDGE_LENGTH, texturePitch );                                                  
 
     cudaEventRecord( start );
 
@@ -398,7 +416,8 @@ int main( int , char**  ) {
     // read back result
     cudaMemcpy( &host_grid_out[ 0 ], dev_grid_out, GRID_BYTE_SIZE, cudaMemcpyDeviceToHost );
     // print grid
-    std::cout << "Texture memory - result:  " << host_grid_out.front() << ".." << host_grid_out.back() << std::endl;
+    std::cout << "Texture memory - result:  " << host_grid_out.front() << ".." 
+              << host_grid_out.back() << std::endl;
     std::cout << "Time:   " << e << " ms\n" << std::endl;
     
     //--------------------------------------------------------------------------  
@@ -411,8 +430,10 @@ int main( int , char**  ) {
     cudaArray* dev_stencil_array = 0;
     cudaMallocArray( &dev_grid_in_array, &cd, GRID_NUM_COLUMNS, GRID_NUM_ROWS );
     cudaMallocArray( &dev_stencil_array, &cd, STENCIL_EDGE_LENGTH, STENCIL_EDGE_LENGTH );
-    cudaMemcpyToArray( dev_grid_in_array, 0, 0, dev_grid_in, GRID_BYTE_SIZE,    cudaMemcpyDeviceToDevice );
-    cudaMemcpyToArray( dev_stencil_array, 0, 0, dev_stencil, STENCIL_BYTE_SIZE, cudaMemcpyDeviceToDevice );
+    cudaMemcpyToArray( dev_grid_in_array, 0, 0, dev_grid_in, GRID_BYTE_SIZE,    
+                       cudaMemcpyDeviceToDevice );
+    cudaMemcpyToArray( dev_stencil_array, 0, 0, dev_stencil, STENCIL_BYTE_SIZE,
+                       cudaMemcpyDeviceToDevice );
                                                          
     // bind textures to array
     cudaBindTextureToArray( &gridInTexArray,  dev_grid_in_array, &cd );
@@ -433,7 +454,8 @@ int main( int , char**  ) {
     // read back result
     cudaMemcpy( &host_grid_out[ 0 ], dev_grid_out, GRID_BYTE_SIZE, cudaMemcpyDeviceToHost );
     // print grid
-    std::cout << "Texture arrays - result: " << host_grid_out.front() << ".." << host_grid_out.back() << std::endl;
+    std::cout << "Texture arrays - result: " << host_grid_out.front() << ".." 
+              << host_grid_out.back() << std::endl;
     std::cout << "Time:   " << e << " ms\n" << std::endl;  
 
     //--------------------------------------------------------------------------
@@ -442,7 +464,8 @@ int main( int , char**  ) {
     cudaEventCreate( &stop  );
     cudaEventRecord( start );
     
-    const int TILE_NUM_ROWS    = threads_per_block.x + STENCIL_EDGE_LENGTH / 2;
+    // / -> int div:  2 * ( I / 2 ) != I when I odd
+    const int TILE_NUM_ROWS    = threads_per_block.x + 2 * ( STENCIL_EDGE_LENGTH / 2 );
     const int TILE_NUM_COLUMNS = TILE_NUM_ROWS; 
     const int SHARED_MEM_SIZE  = sizeof( real_t ) * TILE_NUM_ROWS * TILE_NUM_COLUMNS +
                                  STENCIL_BYTE_SIZE;
@@ -463,7 +486,8 @@ int main( int , char**  ) {
     // read back result
     cudaMemcpy( &host_grid_out[ 0 ], dev_grid_out, GRID_BYTE_SIZE, cudaMemcpyDeviceToHost );
     // print grid
-    std::cout << "Shared memory - result:  " << host_grid_out.front() << ".." << host_grid_out.back() << std::endl;
+    std::cout << "Shared memory - result:  " << host_grid_out.front() << ".." 
+              << host_grid_out.back() << std::endl;
     std::cout << "Time:   " << e << " ms\n" << std::endl; 
 
     //--------------------------------------------------------------------------
@@ -473,7 +497,8 @@ int main( int , char**  ) {
                        GRID_NUM_ROWS,
                        GRID_NUM_COLUMNS,
                        STENCIL_EDGE_LENGTH );
-    std::cout << "CPU - result:            " << host_grid_out.front() << ".." << host_grid_out.back() << std::endl;
+    std::cout << "CPU - result:            " << host_grid_out.front() << ".." 
+              << host_grid_out.back() << std::endl;
 
     // release texture
     cudaUnbindTexture( &gridInTex  );
