@@ -30,8 +30,11 @@
 //
 // #Execution: ./texture-memory-2 
 //
-// #Note: textures do not support 64 bit (double precision) floating point data that's why
-//        a version with local caching it's shown;
+// #warning: texture wrap mode doesn't seem to work with non-power-of-two textures 
+//
+// #Note: textures do not support directly 64 bit (double precision) floating point data 
+//        it is however possible to unpack doubles into int2 textures and reconstruct the double inside
+//        a kernel local variable
 //        Global time / Cached time == Cached time / Texture time ~= 2
 //
 // #Note: the code is C++ also because the default compilation mode for CUDA is C++, all functions

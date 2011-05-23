@@ -6,7 +6,7 @@
 //
 // #Goal: compare the performance of 2D stencil application with:
 //        1) global memory
-//        2) texture memory
+//        2) texture memory with and without arrays
 //        3) shared memory 
 //
 // #Rationale: shows how texture memory is faster than global memory
@@ -14,7 +14,8 @@
 //             shows that for periodic boundary conditions using hw wrapping
 //             is much faster than performing manual bounds checking
 //
-// #Solution: implement stencil computation accessing data in global, texture and shared memory
+// #Solution: implement stencil computation accessing data in global, texture and shared memory;
+//            pack double precision data into int2 data types 
 //
 // #Code: 1) compute launch grid configuration
 //        2) allocate data on host(cpu) and device(gpu)
@@ -26,14 +27,15 @@
 //        8) release texture memory 
 //        9) free memory
 //        
-// #Compilation: nvcc -arch=sm_13 8_1_texture-memory.cu -o texture-memory-2
+// #Compilation: nvcc -arch=sm_13 8_2_texture-memory-double-precision.cu -o texture-memory-3
 //
-// #Execution: ./texture-memory-2 
+// #Execution: ./texture-memory-3 
 //
 // #warning: texture wrap mode doesn't seem to work with non-power-of-two textures
 //
-// #Note: textures do not support 64 bit (double precision) doubleing point data that's why
-//        a version with local caching it's shown;
+// #Note: textures do not support directly 64 bit (double precision) floating point data 
+//        it is however possible unpack doubles into int2 textures and reconstruct the double inside
+//        a kernel local variable
 //        Global time / Cached time == Cached time / Texture time ~= 2
 //
 // #Note: the code is C++ also because the default compilation mode for CUDA is C++, all functions
@@ -392,9 +394,12 @@ int main( int , char**  ) {
     // and sizeof(double) *must* be equal to 8    
     const int BITS_PER_BYTE = 8;
     // assume size of int is 4 and size of double is 8
-    const int HALF_DOUBLE_SIZE = sizeof( int );
+    const int HALF_DOUBLE_SIZE = sizeof( double ) / 2;
     cudaChannelFormatDesc cd = cudaCreateChannelDesc( HALF_DOUBLE_SIZE *  BITS_PER_BYTE,
-                                                      HALF_DOUBLE_SIZE *  BITS_PER_BYTE, 0, 0, cudaChannelFormatKindSigned );
+                                                      HALF_DOUBLE_SIZE *  BITS_PER_BYTE, 
+                                                      0, 0, cudaChannelFormatKindSigned );
+
+    //--------------------------------------------------------------------------
 #ifdef TEXTURE_WRAP    
     gridInTex.addressMode[ 0 ] = cudaAddressModeWrap;
     gridInTex.addressMode[ 1 ] = cudaAddressModeWrap;
