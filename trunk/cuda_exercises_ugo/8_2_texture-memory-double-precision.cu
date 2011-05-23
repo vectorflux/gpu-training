@@ -1,6 +1,6 @@
 // #CSCS CUDA Training 
 //
-// #Exercise 8_1 - texture memory, 2D stencil
+// #Exercise 8_2 - texture memory, 2D stencil, double precision version
 //
 // #Author Ugo Varetto
 //
@@ -30,7 +30,9 @@
 //
 // #Execution: ./texture-memory-2 
 //
-// #Note: textures do not support 64 bit (double precision) floating point data that's why
+// #warning: texture wrap mode doesn't seem to work with non-power-of-two textures
+//
+// #Note: textures do not support 64 bit (double precision) doubleing point data that's why
 //        a version with local caching it's shown;
 //        Global time / Cached time == Cached time / Texture time ~= 2
 //
@@ -57,9 +59,9 @@
 
 //------------------------------------------------------------------------------
 // read input data from global memory
-__global__ void apply_stencil( const float* gridIn, 
-                               const float* stencil,
-                               float* gridOut,
+__global__ void apply_stencil( const double* gridIn, 
+                               const double* stencil,
+                               double* gridOut,
                                int gridNumRows,
                                int gridNumColumns,
                                int stencilSize ) {
@@ -69,7 +71,7 @@ __global__ void apply_stencil( const float* gridIn,
     const int halfStencilSize = stencilSize / 2;
     if( gridI >= gridNumRows || gridJ >= gridNumColumns ) return;
     const int soff = halfStencilSize;
-    float s = 0.f; 
+    double s = 0.f; 
     int si = 0;
     int sj = 0;
     for( int i = -halfStencilSize; i <= halfStencilSize; ++i ) {
@@ -92,12 +94,12 @@ __global__ void apply_stencil( const float* gridIn,
 
 //------------------------------------------------------------------------------
 // texture references wrapping global memory
-texture< float, 2 > gridInTex;
-texture< float, 2 > stencilTex;
+texture< int2, 2 > gridInTex;
+texture< int2, 2 > stencilTex;
 
 
 // read input data from global memory
-__global__ void apply_stencil_texture( float* gridOut,
+__global__ void apply_stencil_texture( double* gridOut,
                                        int gridNumRows,
                                        int gridNumColumns,
                                        int stencilSize ) {
@@ -107,7 +109,7 @@ __global__ void apply_stencil_texture( float* gridOut,
     const int halfStencilSize = stencilSize / 2;
     if( gridI >= gridNumRows || gridJ >= gridNumColumns ) return;
     const int soff = halfStencilSize;
-    float s = 0.f; 
+    double s = 0.0; 
     int si = 0;
     int sj = 0;
     for( int i = -halfStencilSize; i <= halfStencilSize; ++i ) {
@@ -122,8 +124,10 @@ __global__ void apply_stencil_texture( float* gridOut,
              if( sj < 0 ) sj += gridNumColumns;
              else if( sj >= gridNumColumns ) sj -= gridNumColumns;
 #endif                               
-             s += tex2D( gridInTex, sj, si ) * 
-                  tex2D( stencilTex, j + soff, i + soff );
+             const int2 gc = tex2D( gridInTex, sj, si );
+             const int2 sc = tex2D( stencilTex, j + soff, i + soff );
+             s +=  __hiloint2double( gc.y, gc.x ) * __hiloint2double( sc.y, sc.x );
+                  
         }
     }
     gridOut[ gridI * gridNumColumns + gridJ ] = s;
@@ -131,12 +135,12 @@ __global__ void apply_stencil_texture( float* gridOut,
 
 //------------------------------------------------------------------------------
 // texture references wrapping array
-texture< float, 2 > gridInTexArray;
-texture< float, 2 > stencilTexArray;
+texture< int2, 2 > gridInTexArray;
+texture< int2, 2 > stencilTexArray;
 
 
 // read input data from global memory
-__global__ void apply_stencil_texture_array( float* gridOut,
+__global__ void apply_stencil_texture_array( double* gridOut,
                                              int gridNumRows,
                                              int gridNumColumns,
                                              int stencilSize ) {
@@ -146,7 +150,7 @@ __global__ void apply_stencil_texture_array( float* gridOut,
     const int halfStencilSize = stencilSize / 2;
     if( gridI >= gridNumRows || gridJ >= gridNumColumns ) return;
     const int soff = halfStencilSize;
-    float s = 0.f; 
+    double s = 0.f; 
     int si = 0;
     int sj = 0;
     for( int i = -halfStencilSize; i <= halfStencilSize; ++i ) {
@@ -160,9 +164,10 @@ __global__ void apply_stencil_texture_array( float* gridOut,
 #ifndef TEXTURE_WRAP
              if( sj < 0 ) sj += gridNumColumns;
              else if( sj >= gridNumColumns ) sj -= gridNumColumns;
-#endif                               
-             s += tex2D( gridInTexArray, sj, si ) * 
-                  tex2D( stencilTexArray, j + soff, i + soff );
+#endif       
+             const int2 gc = tex2D( gridInTexArray, sj, si );
+             const int2 sc = tex2D( stencilTexArray, j + soff, i + soff );
+             s +=  __hiloint2double( gc.y, gc.x ) * __hiloint2double( sc.y, sc.x );
         }
     }
     gridOut[ gridI * gridNumColumns + gridJ ] = s;
@@ -172,7 +177,7 @@ __global__ void apply_stencil_texture_array( float* gridOut,
 //------------------------------------------------------------------------------
 // read input data from global memory, cache block into local(shared) memory
 
-__device__ float get_grid_element( const float* grid,
+__device__ double get_grid_element( const double* grid,
                                     int row, 
                                     int column, 
                                     int numRows,
@@ -185,20 +190,20 @@ __device__ float get_grid_element( const float* grid,
 }
 
 // threads + half stencil edge X threads + half stencil edge + stencil buffer size
-__shared__ float cache[];
+__shared__ double cache[];
 
 
-__global__ void apply_stencil_cached( const float* gridIn, 
-                                      const float* stencilIn,
-                                      float* gridOut,
+__global__ void apply_stencil_cached( const double* gridIn, 
+                                      const double* stencilIn,
+                                      double* gridOut,
                                       int gridNumRows,
                                       int gridNumColumns,
                                       int stencilSize,
                                       int tileNumRows,
                                       int tileNumColumns ) {
 
-    float* localGrid = &cache[ 0 ];
-    float* stencil   = &cache[ 0 ] + tileNumRows * tileNumColumns;
+    double* localGrid = &cache[ 0 ];
+    double* stencil   = &cache[ 0 ] + tileNumRows * tileNumColumns;
     // compute current thread id
     const int gridI = blockIdx.y * blockDim.y + threadIdx.y;
     const int gridJ = blockIdx.x * blockDim.x + threadIdx.x;
@@ -253,7 +258,7 @@ __global__ void apply_stencil_cached( const float* gridIn,
     __syncthreads();
     // apply stencil to local (cached) grid               
     const int soff = halfStencilSize;
-    float s = 0.f; 
+    double s = 0.f; 
     for( int i = -halfStencilSize; i <= halfStencilSize; ++i ) {
         const int si = row + i;
         for( int j = -halfStencilSize; j <= halfStencilSize; ++j ) {
@@ -265,11 +270,10 @@ __global__ void apply_stencil_cached( const float* gridIn,
     gridOut[ gridI * gridNumColumns + gridJ ] = s;
 }
 
-
 //------------------------------------------------------------------------------
-void apply_stencil_ref( const float* gridIn,
-                        const float* stencil,
-                        float* gridOut,
+void apply_stencil_ref( const double* gridIn,
+                        const double* stencil,
+                        double* gridOut,
                         int gridNumRows,
                         int gridNumColumns,
                         int stencilSize ) {
@@ -278,7 +282,7 @@ void apply_stencil_ref( const float* gridIn,
      const int soff = halfStencilSize;
      for( int r = 0; r != gridNumRows; ++r ) {
          for( int c = 0; c != gridNumColumns; ++c ) {
-             float s = 0.f; 
+             double s = 0.f; 
              int si = 0;
              int sj = 0;
              for( int i = -halfStencilSize; i <= halfStencilSize; ++i ) {
@@ -298,25 +302,26 @@ void apply_stencil_ref( const float* gridIn,
      }
 }
 
-__global__ void init_grid( float* grid ) {
+__global__ void init_grid( double* grid ) {
     const int gridI = blockIdx.y * blockDim.y + threadIdx.y;
     const int gridJ = blockIdx.x * blockDim.x + threadIdx.x;
     const int stride = gridDim.x * blockDim.x;
-    grid[ gridI * stride + gridJ ] = float( ( gridI + gridJ ) % 2 );                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
+    grid[ gridI * stride + gridJ ] = double( ( gridI + gridJ ) % 2 );                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
 }
+
 
 //------------------------------------------------------------------------------
 int main( int , char**  ) {
     
-    const int GRID_NUM_ROWS    = 0x800;// + 1; //257
-    const int GRID_NUM_COLUMNS = 0x800;// + 1; //257
+    const int GRID_NUM_ROWS    = 0x800; //1024
+    const int GRID_NUM_COLUMNS = 0x800; //1024
     const int GRID_SIZE = GRID_NUM_ROWS * GRID_NUM_COLUMNS;
-    const int GRID_BYTE_SIZE = sizeof( float ) * GRID_SIZE;
+    const int GRID_BYTE_SIZE = sizeof( double ) * GRID_SIZE;
     const int DEVICE_BLOCK_NUM_ROWS = 16; // num threads per row
     const int DEVICE_BLOCK_NUM_COLUMNS = 16; // num threads per columns
     const int STENCIL_EDGE_LENGTH = 3;
     const int STENCIL_SIZE = STENCIL_EDGE_LENGTH * STENCIL_EDGE_LENGTH;
-    const int STENCIL_BYTE_SIZE = sizeof( float ) * STENCIL_SIZE;
+    const int STENCIL_BYTE_SIZE = sizeof( double ) * STENCIL_SIZE;
     
     // block size: the number of threads per block multiplied by the number of blocks
     // must be at least equal to NUMBER_OF_THREADS 
@@ -331,14 +336,14 @@ int main( int , char**  ) {
     // else BLOCK_SIZE = NUMBER_OF_THREADS / THREADS_PER_BLOCK + 1 
  
     //host allocated storage
-    std::vector< float > host_stencil( STENCIL_SIZE, 1.0f / STENCIL_SIZE );
-    std::vector< float > host_grid_in( GRID_SIZE );
-    std::vector< float > host_grid_out( GRID_SIZE );
+    std::vector< double > host_stencil( STENCIL_SIZE, 1.0f / STENCIL_SIZE );
+    std::vector< double > host_grid_in( GRID_SIZE );
+    std::vector< double > host_grid_out( GRID_SIZE );
 
     // gpu allocated storage
-    float* dev_grid_in  = 0;
-    float* dev_grid_out = 0;
-    float* dev_stencil  = 0;
+    double* dev_grid_in  = 0;
+    double* dev_grid_out = 0;
+    double* dev_stencil  = 0;
     cudaMalloc( &dev_grid_in,  GRID_BYTE_SIZE    );
     cudaMalloc( &dev_grid_out, GRID_BYTE_SIZE   );
     cudaMalloc( &dev_stencil,  STENCIL_BYTE_SIZE );
@@ -382,19 +387,23 @@ int main( int , char**  ) {
     std::cout << "Time:   " << e << " ms\n" << std::endl; 
 
     //--------------------------------------------------------------------------
-    // describe data inside texture: 1-component floating point value in this case    
+    // describe data inside texture: 2-component int which map to a single
+    // double precision data type; for this to work sizeof(int) *must* be equal to 4
+    // and sizeof(double) *must* be equal to 8    
     const int BITS_PER_BYTE = 8;
-    cudaChannelFormatDesc cd = cudaCreateChannelDesc( sizeof( float ) *  BITS_PER_BYTE,
-                                                      0, 0, 0, cudaChannelFormatKindFloat );
+    // assume size of int is 4 and size of double is 8
+    const int HALF_DOUBLE_SIZE = sizeof( int );
+    cudaChannelFormatDesc cd = cudaCreateChannelDesc( HALF_DOUBLE_SIZE *  BITS_PER_BYTE,
+                                                      HALF_DOUBLE_SIZE *  BITS_PER_BYTE, 0, 0, cudaChannelFormatKindSigned );
 #ifdef TEXTURE_WRAP    
     gridInTex.addressMode[ 0 ] = cudaAddressModeWrap;
     gridInTex.addressMode[ 1 ] = cudaAddressModeWrap;
 #endif                                                      
     // bind textures to pre-allocated storage
-    int texturePitch = sizeof( float ) * GRID_NUM_COLUMNS;
+    int texturePitch = sizeof( double ) * GRID_NUM_COLUMNS;
     cudaBindTexture2D( 0, &gridInTex,   dev_grid_in, &cd, GRID_NUM_COLUMNS,
                        GRID_NUM_ROWS, texturePitch );
-    texturePitch = sizeof( float ) * STENCIL_EDGE_LENGTH;
+    texturePitch = sizeof( double ) * STENCIL_EDGE_LENGTH;
     cudaBindTexture2D( 0, &stencilTex,  dev_stencil, &cd, STENCIL_EDGE_LENGTH,
                        STENCIL_EDGE_LENGTH, texturePitch );                                                  
 
@@ -418,7 +427,8 @@ int main( int , char**  ) {
     std::cout << "Texture memory - result:  " << host_grid_out.front() << ".." 
               << host_grid_out.back() << std::endl;
     std::cout << "Time:   " << e << " ms\n" << std::endl;
-    
+
+   
     //--------------------------------------------------------------------------  
 #ifdef TEXTURE_WRAP    
     gridInTexArray.addressMode[ 0 ] = cudaAddressModeWrap;
@@ -466,7 +476,7 @@ int main( int , char**  ) {
     // / -> int div:  2 * ( I / 2 ) != I when I odd
     const int TILE_NUM_ROWS    = threads_per_block.x + 2 * ( STENCIL_EDGE_LENGTH / 2 );
     const int TILE_NUM_COLUMNS = TILE_NUM_ROWS; 
-    const int SHARED_MEM_SIZE  = sizeof( float ) * TILE_NUM_ROWS * TILE_NUM_COLUMNS +
+    const int SHARED_MEM_SIZE  = sizeof( double ) * TILE_NUM_ROWS * TILE_NUM_COLUMNS +
                                  STENCIL_BYTE_SIZE;
 
     // execute kernel accessing global memory
