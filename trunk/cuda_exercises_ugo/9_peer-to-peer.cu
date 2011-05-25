@@ -26,6 +26,7 @@
 //
 // #Note: Fermi (2.0) or better required; must be compiled with sm_2x
 //
+// #Note: Requires at least two GPUs
 //
 // #Note: the code is C++ also because the default compilation mode for CUDA is C++, all functions
 //        are named with C++ convention and the syntax is checked by default against C++ grammar 
@@ -58,19 +59,29 @@ int main( int , char**  ) {
     real_t* dev_buffer = 0;
     const size_t SIZE = 1024;
     const size_t BYTE_SIZE = SIZE * sizeof( real_t );
+    int ndev = 0;
+    cudaGetDeviceCount( &ndev );
+    if( ndev < 2 ) {
+        std::cout << "At least two GPU devices required, " << ndev << " found" << std::endl;
+    }
+    
     // on device 0
     cudaSetDevice( 0 );
     cudaMalloc( &dev_buffer, BYTE_SIZE );
     kernel_on_dev1<<< SIZE, 1 >>>( dev_buffer );
     std::vector< real_t > host_buffer( SIZE );
+    // sync and copy
     cudaMemcpy( &host_buffer[ 0 ], dev_buffer, BYTE_SIZE, cudaMemcpyDeviceToHost );
     std::cout << "Kernel on device 1: " << host_buffer.front() << "..." << host_buffer.back() << std::endl; 
+    
+
     // on device 1
     cudaSetDevice( 1 );
     const int PEER_DEVICE_TO_ACCESS = 0;
     const int PEER_ACCESS_FLAGS = 0; // reserved for future use, must be zero
     cudaDeviceEnablePeerAccess( PEER_DEVICE_TO_ACCESS, PEER_ACCESS_FLAGS ); // <- enable current device(1) to access device 0
     kernel_on_dev2<<<  SIZE, 1 >>>( dev_buffer );
+    // sync and copy
     cudaMemcpy( &host_buffer[ 0 ], dev_buffer, BYTE_SIZE, cudaMemcpyDeviceToHost );
     std::cout << "Kernel on device 2: " << host_buffer.front() << "..." << host_buffer.back() << std::endl; 
     cudaFree( dev_buffer );
