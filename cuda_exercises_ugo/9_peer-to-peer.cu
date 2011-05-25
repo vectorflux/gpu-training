@@ -32,13 +32,7 @@
 //        are named with C++ convention and the syntax is checked by default against C++ grammar 
 //        rules 
 //
-// #Note: -arch=sm_13 allows the code to run on every card available on Eiger and possibly even
-//        on students' laptops; it's the identifier for the architecture before Fermi (sm_20)
-// #Note: -arch=sm_13 is the lowest architecture version that supports double precision
-//
-// #Note: the example can be extended to read configuration data and array size from the command
-//        line and could be timed to investigate how performance is dependent on single/double
-//        precision and thread block size
+
 #include <cuda.h>
 #include <iostream>
 #include <vector>
