@@ -4,9 +4,11 @@
 //
 // #Author Ugo Varetto
 //
-// #Goal: run kernels on separate GPUs passing the same pointer to both kernels
+// #Goal: run kernels on separate GPUs passing the same pointer to both kernels; have
+//        each kernel operate on a subset of the data
 //
-// #Rationale: shows how memory can be accessed from kernels in separate GPUs 
+// #Rationale: shows how the same memory can be accessed from kernels in separate GPUs and
+//             how to time the concurrent execution of kernels
 //
 // #Solution: use setCudaDevice and cudaEnablePeerAccess to select device and
 //            enable sharing of memory
@@ -20,30 +22,28 @@
 //        7) copy data back from GPU 
 //        8) free memory
 //        
-// #Compilation: nvcc -arch=sm_20 9_peer-to-peer.cu -o peer-to-peer
+// #Compilation: nvcc -arch=sm_20 10_multi-gpu.cu -o multi-gpu
 //
-// #Execution: ./peer-to-peer
+// #Execution: ./multi-gpu
 //
 // #Note: Fermi (2.0) or better required; must be compiled with sm_2x
 //
 // #Note: Requires at least two GPUs
 //
+// #Note: timing
+//
 // #Note: the code is C++ also because the default compilation mode for CUDA is C++, all functions
 //        are named with C++ convention and the syntax is checked by default against C++ grammar 
 //        rules 
-//
-// #Note: -arch=sm_13 allows the code to run on every card available on Eiger and possibly even
-//        on students' laptops; it's the identifier for the architecture before Fermi (sm_20)
-// #Note: -arch=sm_13 is the lowest architecture version that supports double precision
-//
-// #Note: the example can be extended to read configuration data and array size from the command
-//        line and could be timed to investigate how performance is dependent on single/double
-//        precision and thread block size
+
 #include <cuda.h>
 #include <iostream>
 #include <vector>
+#include <string>
+#include <ctime>
+#include <algorithm>
 
-typedef float real_t;
+typedef double real_t;
 
 
 __device__ size_t get_global_index( const dim3& gridSize,
@@ -70,13 +70,21 @@ __global__ void init( real_t* buffer, dim3 gridSize, dim3 offset ) {
 }
 
 
-#define p std::cout << __LINE__ - 1 << "> " << cudaGetErrorString( cudaGetLastError() ) << std::endl;
+void print_ptr_attr( const cudaPointerAttributes& pa ) {
+    std::cout << "\nPointer attributes:\n";
+    std::string mt = pa.memoryType == cudaMemoryTypeHost ? "cudaMemoryTypeHost"
+                                                         : "cudaMemoryTypeDevice";
+    std::cout << "  memoryType:    " << mt << std::endl;
+    std::cout << "  device:        " << pa.device << std::endl;
+    std::cout << "  devicePointer: " << std::hex << pa.devicePointer << std::endl;
+    std::cout << "  hostPointer:   " << pa.hostPointer << std::endl;
+}
 
 //------------------------------------------------------------------------------
 int main( int , char**  ) {
     
     real_t* dev_buffer = 0;
-    const size_t SZ = 512;
+    const size_t SZ = 550;
     const size_t SIZE = SZ * SZ * SZ;
     const size_t BYTE_SIZE = SIZE * sizeof( real_t );
     int ndev = 0;
@@ -85,24 +93,58 @@ int main( int , char**  ) {
         std::cout << "At least two GPU devices required, " << ndev << " found" << std::endl;
     }
    
-    cudaSetDevice( 1 );
-    cudaDeviceEnablePeerAccess( 0, 0 );
+    std::cout << "\nGrid size: " << BYTE_SIZE / double( 1024 * 1024 * 1024 ) << " GiB" << std::endl;
+       
     // on device 0
     cudaSetDevice( 0 );
     cudaMalloc( &dev_buffer, BYTE_SIZE );
-    init<<< dim3( SZ, SZ, SZ ), 1 >>>( dev_buffer, dim3( SZ, SZ, SZ ), dim3( 0, 0, 0 ) );
+    cudaPointerAttributes pointer_attr;
+    // print pointer attributes
+    cudaPointerGetAttributes( &pointer_attr, dev_buffer );
+    print_ptr_attr( pointer_attr );
+    // create events for timing 
+    cudaEvent_t init_start, init_stop;
+    cudaEventCreate( &init_start );
+    cudaEventCreate( &init_stop  );
+    cudaEventRecord( init_start, 0 );
+    // launch initialization kernel on entire grid and time execution 
+    init<<< dim3( SZ, SZ, SZ ), 1 >>>( dev_buffer, dim3( SZ, SZ, SZ ), dim3( 0, 0, 0 ) ); 
+    cudaEventRecord( init_stop, 0 );
+    cudaEventSynchronize( init_stop );
     cudaThreadSynchronize();
-
+    float e;
+    cudaEventElapsedTime( &e, init_start, init_stop );
+    std::cout << "\nInit elapsed time : " << e << " ms\n" << std::endl;
+ 
+    // switch to device 1
+    cudaSetDevice( 1 );
+    // print again pointer attribute, just to verify that data are sill valid
+    std::cout << "Before cudaDeviceEnablePeerAccess:" << std::endl;
+    cudaPointerGetAttributes( &pointer_attr, dev_buffer );
+    print_ptr_attr( pointer_attr );
+    // enable sharing with device 0
+    cudaDeviceEnablePeerAccess( 0, 0 );
+    cudaPointerGetAttributes( &pointer_attr, dev_buffer );
+    print_ptr_attr( pointer_attr );
+    std::cout << "After cudaDeviceEnablePeerAccess:"  << std::endl;
+    print_ptr_attr( pointer_attr );
+    
+    cudaSetDevice( 0 );
     // launch kernel on front part of domain
-    cudaEvent_t start1, stop1, start2, stop2;
+    cudaEvent_t start1, stop1, start12, stop12, start2, stop2;
     cudaEventCreate( &start1 );
+    cudaEventCreate( &start12 );
     cudaEventCreate( &stop1  );
+    cudaEventCreate( &stop12  );
+    cudaSetDevice( 1 );
     cudaEventCreate( &start2 );
     cudaEventCreate( &stop2  );
+    cudaSetDevice( 0 );
     cudaEventRecord( start1, 0 );
+    clock_t cpu_start = clock();    
     kernel_on_dev1<<< dim3( SZ, SZ, SZ / 2 ), 1 >>>( dev_buffer, dim3( SZ, SZ, SZ ), dim3( 0, 0, 0 ) );
     cudaSetDevice( 1 );
-    // launch kernel on back part od domain
+    // launch kernel on back part of domain
     cudaEventRecord( start2, 0 );
     kernel_on_dev2<<< dim3( SZ, SZ, SZ / 2 ), 1 >>>( dev_buffer, dim3( SZ, SZ, SZ ), dim3( 0, 0, SZ / 2 ) );
     cudaEventRecord( stop2, 0 );
@@ -112,22 +154,31 @@ int main( int , char**  ) {
     cudaEventRecord( stop1, 0 );
     cudaEventSynchronize( stop1 );
     cudaThreadSynchronize();
-
+    clock_t cpu_end = clock();
+    // on POSIX systems CLOCKS_PER_SECOND is always 1E6
+    std::cout << "\nCPU time: " << double( cpu_end - cpu_start ) / 1E3 << " ms"<< std::endl;
+   
     float e1, e2;
     cudaEventElapsedTime( &e1, start1, stop1 );
+    cudaSetDevice( 1 );
     cudaEventElapsedTime( &e2, start2, stop2 );
-    std::cout << "Elapsed time (ms): " <<  e1 << ' ' << e2 << std::endl;      
+    cudaSetDevice( 0 );
+    std::cout << "GPU time: " <<  std::max( e1, e2 ) << " ms\n" << std::endl;      
     
     std::vector< real_t > host_buffer( SIZE );
     cudaMemcpy( &host_buffer[ 0 ], dev_buffer, BYTE_SIZE, cudaMemcpyDeviceToHost );
     std::cout << ": " << host_buffer.front() << "..." << host_buffer.back() << std::endl; 
     
+    
+    cudaEventDestroy( init_start );
+    cudaEventDestroy( init_stop  );
     cudaEventDestroy( start1 );
-    cudaEventDestroy( start2 );
     cudaEventDestroy( stop1  );
-    cudaEventDestroy( stop2  );
-
     cudaFree( dev_buffer );
+    cudaSetDevice( 1 );
+    cudaEventDestroy( start2 );
+    cudaEventDestroy( stop2  );
+    
     
     return 0;
 }
