@@ -30,7 +30,11 @@
 //
 // #Note: Requires at least two GPUs
 //
-// #Note: timing
+// #Note: timing execution on separate parallel kernels requires separate events to be created and used
+//        in the context associated with each device i.e. invoke setDevice() before performing operations
+//        on events
+//
+// #Note: try to change the grid size and check how this affects performance 
 //
 // #Note: the code is C++ also because the default compilation mode for CUDA is C++, all functions
 //        are named with C++ convention and the syntax is checked by default against C++ grammar 
@@ -42,6 +46,7 @@
 #include <string>
 #include <ctime>
 #include <algorithm>
+#include <cmath>
 
 typedef double real_t;
 
@@ -97,7 +102,10 @@ int main( int , char**  ) {
        
     // on device 0
     cudaSetDevice( 0 );
+    // allocate and initialize data
     cudaMalloc( &dev_buffer, BYTE_SIZE );
+    init<<< dim3( SZ, SZ, SZ ), 1 >>>( dev_buffer, dim3( SZ, SZ, SZ ), dim3( 0, 0, 0 ) );
+    cudaThreadSynchronize(); 
     cudaPointerAttributes pointer_attr;
     // print pointer attributes
     cudaPointerGetAttributes( &pointer_attr, dev_buffer );
@@ -107,23 +115,35 @@ int main( int , char**  ) {
     cudaEventCreate( &init_start );
     cudaEventCreate( &init_stop  );
     cudaEventRecord( init_start, 0 );
-    // launch initialization kernel on entire grid and time execution 
-    init<<< dim3( SZ, SZ, SZ ), 1 >>>( dev_buffer, dim3( SZ, SZ, SZ ), dim3( 0, 0, 0 ) ); 
+    // launch kernel on half domain and time execution *before* sharing memory
+    kernel_on_dev1<<< dim3( SZ, SZ, SZ / 2 ), 1 >>>( dev_buffer, dim3( SZ, SZ, SZ ), dim3( 0, 0, 0 ) ); 
     cudaEventRecord( init_stop, 0 );
     cudaEventSynchronize( init_stop );
     cudaThreadSynchronize();
-    float e;
-    cudaEventElapsedTime( &e, init_start, init_stop );
-    std::cout << "\nInit elapsed time : " << e << " ms\n" << std::endl;
+    float elapsed_half_no_sharing;
+    cudaEventElapsedTime( &elapsed_half_no_sharing, init_start, init_stop );
+    std::cout << "\nKernel on first device on half domain before sharing - elapsed time :  "
+              << elapsed_half_no_sharing << " ms\n" << std::endl;
+    cudaEventRecord( init_start, 0 );
+    // launch kernel on entire grid and time execution
+    kernel_on_dev1<<< dim3( SZ, SZ, SZ ), 1 >>>( dev_buffer, dim3( SZ, SZ, SZ ), dim3( 0, 0, 0 ) ); 
+    cudaEventRecord( init_stop, 0 );
+    cudaEventSynchronize( init_stop );
+    cudaThreadSynchronize();
+    float elapsed_full_no_sharing;
+    cudaEventElapsedTime( &elapsed_full_no_sharing, init_start, init_stop );
+    std::cout << "\nKernel on first device on full domain before sharing - elapsed time :  " 
+              << elapsed_full_no_sharing << " ms\n" << std::endl;
  
     // switch to device 1
     cudaSetDevice( 1 );
-    // print again pointer attribute, just to verify that data are sill valid
+    // print again pointer attributes *before* sharing data 
     std::cout << "Before cudaDeviceEnablePeerAccess:" << std::endl;
     cudaPointerGetAttributes( &pointer_attr, dev_buffer );
     print_ptr_attr( pointer_attr );
     // enable sharing with device 0
     cudaDeviceEnablePeerAccess( 0, 0 );
+    // print pointer attributes *after* enabling sharing of data
     cudaPointerGetAttributes( &pointer_attr, dev_buffer );
     print_ptr_attr( pointer_attr );
     std::cout << "After cudaDeviceEnablePeerAccess:"  << std::endl;
@@ -168,6 +188,12 @@ int main( int , char**  ) {
     std::vector< real_t > host_buffer( SIZE );
     cudaMemcpy( &host_buffer[ 0 ], dev_buffer, BYTE_SIZE, cudaMemcpyDeviceToHost );
     std::cout << ": " << host_buffer.front() << "..." << host_buffer.back() << std::endl; 
+    
+    std::cout << "Half domain: exec. time without sharing / exec. time with sharing: " 
+              << elapsed_half_no_sharing / std::max( e1, e2 ) << std::endl;
+    std::cout << "Full domain: exec. time eithout sharing / exec. time with sharing: " 
+              << elapsed_full_no_sharing / std::max( e1, e2 ) << std::endl;
+    std::cout << "Gain: " << std::ceil(100 * ( elapsed_full_no_sharing / std::max( e1, e2 ) - 1 ) ) << '%' << std::endl;
     
     
     cudaEventDestroy( init_start );
