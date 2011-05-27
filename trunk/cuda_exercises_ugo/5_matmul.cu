@@ -1,13 +1,12 @@
 // #CSCS CUDA Training 
 //
-// #Exercise 5 - (block) matrix-matrix multiply
+// #Example 5 - (block) matrix-matrix multiply
 //
 // #Author: Ugo Varetto
 //
-// #Goal: multiply two matrices make use of (block)shared memory to accelerate the computation
+// #Goal: multiply two matrices make use of shared memory to accelerate the computation
 //
-// #Rationale: shows how shared memory can be used to accelerate matrix-matrix
-//             operations   
+// #Rationale: shows how shared memory can be used to accelerate matrix-matrix operations   
 
 // #Solution: copy matrix blocks into shared memory and perform matrix-matrix multiply
 //            on shared memory buffers
@@ -29,17 +28,13 @@
 //
 // #Execution: ./matmul
 //
-// #Note: the code is C++ also because the default compilation mode for CUDA is C++, all functions
-//        are named with C++ convention and the syntax is checked by default against C++ grammar rules 
-//
-// #Note: -arch=sm_13 allows the code to run on every card available on Eiger and possibly even
-//        on students' laptops; it's the identifier for the architecture before Fermi (sm_20)
+// #Note: -arch=sm_13 allows the code to run on every card with hw architecture GT200 (gtx 2xx) or better
 //
 // #Note: -arch=sm_13 is the lowest architecture version that supports double precision
 //
 // #Note: the example can be extended to read configuration data and matrix size from the command line
 //
-// #Note: try on both G90 and GF100 architectures to verify the impact of L1 cache
+// #Note: try on both GT200 and GF100 architectures to verify the impact of L1 cache
  
 #include <cuda.h>
 #include <vector>
