@@ -1,6 +1,6 @@
 // #CSCS CUDA Training 
 //
-// #Exercise 4 - dot product
+// #Example 4 - dot product
 //
 // #Author: Ugo Varetto
 //
@@ -31,8 +31,7 @@
 // #Note: the code is C++ also because the default compilation mode for CUDA is C++, all functions
 //        are named with C++ convention and the syntax is checked by default against C++ grammar rules 
 //
-// #Note: -arch=sm_13 allows the code to run on every card available on Eiger and possibly even
-//        on students' laptops; it's the identifier for the architecture before Fermi (sm_20)
+// #Note: -arch=sm_13 allows the code to run on every card with hw architecture GT200 (gtx 2xx) or better
 //
 // #Note: -arch=sm_13 is the lowest architecture version that supports double precision
 

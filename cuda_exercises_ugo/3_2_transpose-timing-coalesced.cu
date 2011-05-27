@@ -1,15 +1,17 @@
 // #CSCS CUDA Training 
 //
-// #Exercise 3.2 - transpose matrix, coalesced access
+// #Example 3.2 - transpose matrix, coalesced access
 //
 // #Author: Ugo Varetto
 //
-// #Goal: compute the transpose of a matrix with coalesced access 
+// #Goal: compute the transpose of a matrix with coalesced memory access 
 //
-// #Rationale: shows how to make use of shared (among threads in a thread block) memory
-//             to perform coalesced memory access.
+// #Rationale: shows how to increase speed by making use of shared (among threads in a thread block) memory
+//             and coalesced memory access.
 //             CUDA can perform a memory transfer of 16(half warp) contiguous elements(4,8 or 16 bytes each)
-//             in a single step if each thread accesses a different memory location in the 16 element buffer  
+//             in a single step if each thread accesses a different memory location in the 16 element buffer;
+//             also shared memory access can be two orders of magnitude faster than global memory access
+//               
 //
 // #Solution: copy input matrix elements into shared memory blocks and write transposed elements
 //            reading from shared memory. Access is coalesced if the block size is a multiple
@@ -30,20 +32,28 @@
 //        The code uses the default stream 0; streams are used to sychronize operations
 //        to guarantee that all operations in the same stream are executed sequentially.
 //             
-// #Compilation: nvcc -arch=sm_13 3_2_transpose-timing-coalesced.cu -o transpose_timining_coalesced
+// #Compilation: nvcc -arch=sm_13 3_2_transpose-timing-coalesced.cu -o transpose-timining-coalesced
 //
-// #Execution: ./transpose_timining_coalesced
+// #Execution: ./transpose-timining-coalesced
 //
+// #Note: kernel invocations ( foo<<<...>>>(...) ) are *always* asynchronous and a call to 
+//        cudaThreadSynchronize() is required to wait for the end of kernel execution from
+//        a host thread; in case synchronous copy operations like cudaMemcpy(...,cudaDeviceToHost)
+//        kernel execution is guaranteed to be terminated before data are copied
 //
 // #Note: the code is C++ also because the default compilation mode for CUDA is C++, all functions
 //        are named with C++ convention and the syntax is checked by default against C++ grammar rules 
 //
-// #Note: -arch=sm_13 allows the code to run on every card available on Eiger and possibly even
-//        on students' laptops; it's the identifier for the architecture before Fermi (sm_20)
+// #Note: -arch=sm_13 allows the code to run on every card with hw architecture GT200 (gtx 2xx) or better
 //
 // #Note: -arch=sm_13 is the lowest architecture version that supports double precision
 //
 // #Note: the example can be extended to read configuration data and matrix size from the command line
+//
+// #Note: despite improvements in Tesla2 and Fermi hardware, coalescing is BY NO MEANS obsolete.
+//        Even on Tesla2 or Fermi class hardware, failing to coalesce global memory transactions
+//        can result in a 2x performance hit. (On Fermi class hardware, this seems to be true only
+//        when ECC is enabled. Contiguous-but-uncoalesced memory transactions take about a 20% hit on Fermi.)
 
 #include <cuda.h>
 #include <vector>

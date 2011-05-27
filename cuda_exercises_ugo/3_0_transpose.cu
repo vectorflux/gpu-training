@@ -1,6 +1,6 @@
 // #CSCS CUDA Training 
 //
-// #Exercise 3 - transpose matrix
+// #Example 3 - transpose matrix
 //
 // #Author Ugo Varetto
 //
@@ -25,11 +25,14 @@
 //
 // #Execution: ./transpose
 //
+// #Note: kernel invocations ( foo<<<...>>>(...) ) are *always* asynchronous and a call to 
+//        cudaThreadSynchronize() is required to wait for the end of kernel execution from
+//        a host thread; in case synchronous copy operations like cudaMemcpy(...,cudaDeviceToHost)
+//        kernel execution is guaranteed to be terminated before data are copied 
 // #Note: the code is C++ also because the default compilation mode for CUDA is C++, all functions
 //        are named with C++ convention and the syntax is checked by default against C++ grammar rules 
 //
-// #Note: -arch=sm_13 allows the code to run on every card available on Eiger and possibly even
-//        on students' laptops; it's the identifier for the architecture before Fermi (sm_20)
+// #Note: -arch=sm_13 allows the code to run on every card with hw architecture GT200 (gtx 2xx) or better
 //
 // #Note: -arch=sm_13 is the lowest architecture version that supports double precision
 //

@@ -1,10 +1,10 @@
 // #CSCS CUDA Training 
 //
-// #Exercise 2_0 - sum vectors, fix number of threads per block
+// #Example 2.0 - sum vectors, fix number of threads per block
 //
 // #Author Ugo Varetto
 //
-// #Goal: compute the scalar product of two 1D vectors using a number of threads greater than or equal to
+// #Goal: compute the scalar product of two 1D vectors using a number of GPU threads greater than or equal to
 //        the number of vector elements and not evenly divisible by the block size 
 
 // #Rationale: shows how to implement a kernel with a computation/memory configuration that matches
@@ -12,30 +12,35 @@
 //
 // #Solution: 
 //          . number of elements in the output array = E
-//          . number of threads per block = Tb          
+//          . number of threads per block = Tb         
 //          The number of blocks is = ( E + Tb - 1 ) div Tb where 'div' is the integer division operator   
-//          Each thread on the GPU computes one(thread id < vector size) or zero( thread id >= vector size)
+//          Each thread on the GPU computes one(thread id < vector size) or zero(thread id >= vector size)
 //          elements of the output vector.        
 //
 //
 // #Code: typical flow:
 //        1) compute launch grid configuration
 //        2) allocate data on host(cpu) and device(gpu)
-//        3) copy data from host ro device
+//        3) copy data from host to device
 //        4) launch kernel
 //        5) read data back
 //        6) consume data (in this case print result)
 //        7) free memory
 //        
-// #Compilation: nvcc -arch=sm_13 2_0_sum_vectors.cu -o sum_vectors_1
+// #Compilation: nvcc -arch=sm_13 2_0_sum-vectors.cu -o sum-vectors-1
 //
-// #Execution: ./sum_vectors_1 
+// #Execution: ./sum-vectors-1 
+//
+// #Note: kernel invocations ( foo<<<...>>>(...) ) are *always* asynchronous and a call to 
+//        cudaThreadSynchronize() is required to wait for the end of kernel execution from
+//        a host thread; in case synchronous copy operations like cudaMemcpy(...,cudaDeviceToHost)
+//        kernel execution is guaranteed to be terminated before data are copied       
 //
 // #Note: the code is C++ also because the default compilation mode for CUDA is C++, all functions
 //        are named with C++ convention and the syntax is checked by default against C++ grammar rules 
 //
-// #Note: -arch=sm_13 allows the code to run on every card available on Eiger and possibly even
-//        on students' laptops; it's the identifier for the architecture before Fermi (sm_20)
+// #Note: -arch=sm_13 allows the code to run on every card with hw architecture GT200 (gtx 2xx) or better
+//
 // #Note: -arch=sm_13 is the lowest architecture version that supports double precision
 //
 // #Note: the example can be extended to read configuration data and array size from the command line
@@ -102,7 +107,7 @@ int main( int , char**  ) {
     // execute kernel with num threads >= num elements
     sum_vectors<<<NUMBER_OF_BLOCKS, THREADS_PER_BLOCK>>>( dev_in1, dev_in2, dev_out, VECTOR_SIZE );
     
-    // read back result
+    // read back result 
     cudaMemcpy( &vout[ 0 ], dev_out, SIZE, cudaMemcpyDeviceToHost );
     
     // print first and last element of vector
