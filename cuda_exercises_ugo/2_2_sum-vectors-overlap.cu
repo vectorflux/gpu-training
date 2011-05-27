@@ -1,13 +1,13 @@
 // #CSCS CUDA Training 
 //
-// #Exercise 2.2 - sum vectors, fix number of threads per block, overlap communication and computation
+// #Example 2.2 - sum vectors, fix number of threads per block, overlap communication and computation
 //
 // #Author Ugo Varetto
 //
 // #Goal: compute the sum of two vectors overlapping communication and computation
 //
 // #Rationale: using streams it is possible to subdivide computation and memory transfer
-//             operations in separate execution queue which can be executed in parallel;
+//             operations in separate execution queues which can be executed in parallel;
 //             specifically it is possible to execute kernel computation while concurrently
 //             transferring data between host and device
 //
@@ -30,7 +30,7 @@
 //        4) create streams
 //        5) iterate over array elements performing memory transfers and
 //           kernel invocation: at each iteration the number of elements
-//           being processed by separate streams is   VECTOR_CHUNK_SIZE x NUMBER_OF_STREAMS
+//           being processed by separate streams is VECTOR_CHUNK_SIZE x NUMBER_OF_STREAMS
 //        6) synchronize streams to wait for end of execution 
 //        7) consume data (in this case print result)
 //        8) free memory, streams and events (used to time operations)
@@ -45,11 +45,16 @@
 //
 // #Note: page locked memory required for async/stream operations
 //
+// #Note: kernel invocations ( foo<<<...>>>(...) ) are *always* asynchronous and a call to 
+//        cudaThreadSynchronize() is required to wait for the end of kernel execution from
+//        a host thread; in case synchronous copy operations like cudaMemcpy(...,cudaDeviceToHost)
+//        kernel execution is guaranteed to be terminated before data are copied   
+//
 // #Note: the code is C++ also because the default compilation mode for CUDA is C++, all functions
 //        are named with C++ convention and the syntax is checked by default against C++ grammar rules 
 //
-// #Note: -arch=sm_13 allows the code to run on every card available on Eiger and possibly even
-//        on students' laptops; it's the identifier for the architecture before Fermi (sm_20)
+// #Note: -arch=sm_13 allows the code to run on every card with hw architecture GT200 (gtx 2xx) or better
+//
 // #Note: -arch=sm_13 is the lowest architecture version that supports double precision
 //
 // #Note: the example can be extended to read configuration data and array size from the command line and

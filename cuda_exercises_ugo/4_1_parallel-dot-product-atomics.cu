@@ -1,6 +1,6 @@
 // #CSCS CUDA Training 
 //
-// #Exercise 4.1 - dot product with atomics - only works on Fermi and later
+// #Example 4.1 - dot product with atomics - only works on Fermi and later
 //
 // #Author: Ugo Varetto
 //
@@ -31,17 +31,16 @@
 //
 // #Note: also check cudaMemset, cudaErrorString, cudaGetLastError usage
 //
+// #Note: kernel invocations ( foo<<<...>>>(...) ) are *always* asynchronous and a call to 
+//        cudaThreadSynchronize() is required to wait for the end of kernel execution from
+//        a host thread; in case synchronous copy operations like cudaMemcpy(...,cudaDeviceToHost)
+//        kernel execution is guaranteed to be terminated before data are copied
+//
 // #Note: as of CUDA 3.2 it seems that kernels do not stall anymore when invoking
 //        __syncthreads from within an if block dependent on the thread id;
 //       #see http://forums.nvidia.com/index.php?showtopic=178284
 //
-// #Note: the code is C++ also because the default compilation mode for CUDA is C++, all functions
-//        are named with C++ convention and the syntax is checked by default against C++ grammar rules 
-//
-// #Note: -arch=sm_13 allows the code to run on every card available on Eiger and possibly even
-//        on students' laptops; it's the identifier for the architecture before Fermi (sm_20)
-//
-// #Note: -arch=sm_20 is the lowest architecture version that allows to use floating point atomics
+// #Note: -arch=sm_20 is the lowest architecture version supporting floating point atomics
 
 #include <cuda.h>
 #include <vector>

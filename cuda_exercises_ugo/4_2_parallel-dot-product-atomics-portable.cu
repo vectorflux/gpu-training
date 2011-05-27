@@ -1,6 +1,6 @@
 // #CSCS CUDA Training 
 //
-// #Exercise 4.2 - dot product with atomics - generic version with custom mutex
+// #Example 4.2 - dot product with atomics - generic version with custom mutex
 //
 // #Author: Ugo Varetto
 //
@@ -22,8 +22,8 @@
 //        7) free memory 
 //             
 // #Compilation: 
-//               [correct] nvcc -arch=sm_20 4_1_parallel-dot-product-atomics.cu -o dot-product-atomics
-//               [wrong]   nvcc -DNO_SYNC -arch=sm_20 4_1_parallel-dot-product-atomics.cu -o dot-product-atomics 
+//               [correct] nvcc -arch=sm_13 4_1_parallel-dot-product-atomics.cu -o dot-product-atomics
+//               [wrong]   nvcc -DNO_SYNC -arch=sm_13 4_1_parallel-dot-product-atomics.cu -o dot-product-atomics 
 //
 // #Execution: ./dot-product-atomics
 //
@@ -33,12 +33,7 @@
 //        __syncthreads from within an if block dependent on the thread id;
 //       #see http://forums.nvidia.com/index.php?showtopic=178284
 //
-// #Note: the code is C++ also because the default compilation mode for CUDA is C++, all functions
-//        are named with C++ convention and the syntax is checked by default against C++ grammar rules 
-//
-// #Note: -arch=sm_13 allows the code to run on every card available on Eiger and possibly even
-//        on students' laptops; it's the identifier for the architecture before Fermi (sm_20)
-//
+
 
 #include <cuda.h>
 #include <vector>
