@@ -1,6 +1,6 @@
 // #CSCS CUDA Training 
 //
-// #Exercise 2_1 - sum vectors, fix number of threads
+// #Example 2.1 - sum vectors, fix number of threads
 //
 // #Author Ugo Varetto
 //
@@ -21,21 +21,26 @@
 // #Code: typical flow:
 //        1) compute launch grid configuration
 //        2) allocate data on host(cpu) and device(gpu)
-//        3) copy data from host ro device
+//        3) copy data from host to device
 //        4) launch kernel
 //        5) read data back
 //        6) consume data (in this case print result)
 //        7) free memory
 //        
-// #Compilation: nvcc -arch=sm_13 2_1_sum_vectors.cu -o sum_vectors_2
+// #Compilation: nvcc -arch=sm_13 2_1_sum-vectors.cu -o sum-vectors-2
 //
-// #Execution: ./sum_vectors_2 
+// #Execution: ./sum-vectors-2 
+//
+// #Note: kernel invocations ( foo<<<...>>>(...) ) are *always* asynchronous and a call to 
+//        cudaThreadSynchronize() is required to wait for the end of kernel execution from
+//        a host thread; in case synchronous copy operations like cudaMemcpy(...,cudaDeviceToHost)
+//        kernel execution is guaranteed to be terminated before data are copied   
 //
 // #Note: the code is C++ also because the default compilation mode for CUDA is C++, all functions
 //        are named with C++ convention and the syntax is checked by default against C++ grammar rules 
 //
-// #Note: -arch=sm_13 allows the code to run on every card available on Eiger and possibly even
-//        on students' laptops; it's the identifier for the architecture before Fermi (sm_20)
+// #Note: -arch=sm_13 allows the code to run on every card with hw architecture GT200 (gtx 2xx) or better
+//
 // #Note: -arch=sm_13 is the lowest architecture version that supports double precision
 //
 // #Note: the example can be extended to read configuration data and array size from the command line

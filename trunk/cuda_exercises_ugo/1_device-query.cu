@@ -1,21 +1,21 @@
 // #CSCS CUDA Training 
 //
-// #Exercise 1 - retrieve device info
+// #Example 1 - retrieve device info
 //
 // #Author Ugo Varetto
 //
 // #Goal: compute the maximum size for a 1D grid layout. i.e. the max size for 1D arrays that allows
-//       to match a GPU thread with a single array element. 
+//        to match a GPU thread with a single array element. 
 //
-// #Rationale: CUDA requires client code to configure the domain layout as a 1D or 2D grid of
+// #Rationale: CUDA on arch < 2.x requires client code to configure the domain layout as a 1D or 2D grid of
 //            1,2 or 3D blocks; it is not possible to simply set the GPU layout to match the
 //            domain layout as is the case with OpenCL.
 //
 // #Solution: the max size for a 1D memory layout is computed as  (max num blocks per grid) x (max num threads per block)
 //            i.e. min( deviceProp.maxThreadsDim[0], deviceProp.maxThreadsPerBlock  ) * deviceProp.maxGridSize[0]           
 //
-// #Code: finds number or devices and prints all the available information for each device,
-//        the only relevant information students need to print is:
+// #Code: finds number of devices and prints all the available information for each device,
+//        relevant information is:
 //          . deviceProp.maxGridSize[0] // max number of blocks in dimension zero
 //          . deviceProp.maxThreadsDim[0] // max number of threads per block along dimesion 0
 //          . deviceProp.maxThreadsPerBlock // max threads per block
@@ -23,18 +23,17 @@
 //        proper code should perform some minimal error checking and iterate over
 //        all the available devices
 //        
-// #Compilation: nvcc -arch=sm_13 1_device-query.cu -o device_query 
+// #Compilation: nvcc -arch=sm_13 1_device-query.cu -o device-query 
 //
-// #Execution: ./1_device_query
+// #Execution: ./1_device-query
 //
 // #Note: by default the code prints all the information available for each graphics card;
-//         #define MINIMAL to have the code print out only the relevant information        
+//        #define MINIMAL to have the code print out only the relevant information        
 //
 // #Note: the code is C++ also because the default compilation mode for CUDA is C++, all functions
 //        are named with C++ convention and the syntax is checked by default against C++ grammar rules 
 //
-// #Note: -arch=sm_13 allows the code to run on every card available on Eiger and possibly even
-//        on students' laptops; it's the identifier for the architecture before Fermi (sm_20)
+// #Note: -arch=sm_13 allows the code to run on every card with hw architecture GT200 (gtx 2xx) or better
 
 
 #include <iostream>
