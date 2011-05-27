@@ -89,15 +89,27 @@ void print_ptr_attr( const cudaPointerAttributes& pa ) {
 int main( int , char**  ) {
     
     real_t* dev_buffer = 0;
-    const size_t SZ = 550;
+    const size_t SZ = 512;
     const size_t SIZE = SZ * SZ * SZ;
     const size_t BYTE_SIZE = SIZE * sizeof( real_t );
     int ndev = 0;
     cudaGetDeviceCount( &ndev );
     if( ndev < 2 ) {
         std::cout << "At least two GPU devices required, " << ndev << " found" << std::endl;
+        return 1;
     }
    
+    // check if possible to access device 0 from device 1
+    int yes = 0;
+    int client_device = 1; // device willing to acces data on foreign device
+    int host_device = 0;   // device on which data have been allocated
+    cudaDeviceCanAccessPeer( &yes, client_device, host_device );
+    if( yes != 1 ) {
+        std::cout << "Cannot access " << host_device << " from device " << client_device << std::endl;
+        return 1;
+    }
+
+
     std::cout << "\nGrid size: " << BYTE_SIZE / double( 1024 * 1024 * 1024 ) << " GiB" << std::endl;
        
     // on device 0
@@ -122,7 +134,7 @@ int main( int , char**  ) {
     cudaThreadSynchronize();
     float elapsed_half_no_sharing;
     cudaEventElapsedTime( &elapsed_half_no_sharing, init_start, init_stop );
-    std::cout << "\nKernel on first device on half domain before sharing - elapsed time :  "
+    std::cout << "\nKernel on first device on half domain before sharing:  "
               << elapsed_half_no_sharing << " ms\n" << std::endl;
     cudaEventRecord( init_start, 0 );
     // launch kernel on entire grid and time execution
@@ -132,7 +144,7 @@ int main( int , char**  ) {
     cudaThreadSynchronize();
     float elapsed_full_no_sharing;
     cudaEventElapsedTime( &elapsed_full_no_sharing, init_start, init_stop );
-    std::cout << "\nKernel on first device on full domain before sharing - elapsed time :  " 
+    std::cout << "\nKernel on first device on full domain before sharing:  " 
               << elapsed_full_no_sharing << " ms\n" << std::endl;
  
     // switch to device 1
@@ -175,6 +187,8 @@ int main( int , char**  ) {
     cudaEventSynchronize( stop1 );
     cudaThreadSynchronize();
     clock_t cpu_end = clock();
+
+    
     // on POSIX systems CLOCKS_PER_SECOND is always 1E6
     std::cout << "\nCPU time: " << double( cpu_end - cpu_start ) / 1E3 << " ms"<< std::endl;
    
@@ -191,10 +205,24 @@ int main( int , char**  ) {
     
     std::cout << "Half domain: exec. time without sharing / exec. time with sharing: " 
               << elapsed_half_no_sharing / std::max( e1, e2 ) << std::endl;
-    std::cout << "Full domain: exec. time eithout sharing / exec. time with sharing: " 
+    std::cout << "Full domain: exec. time without sharing / exec. time with sharing: " 
               << elapsed_full_no_sharing / std::max( e1, e2 ) << std::endl;
     std::cout << "Gain: " << std::ceil(100 * ( elapsed_full_no_sharing / std::max( e1, e2 ) - 1 ) ) << '%' << std::endl;
     
+    // disable peer access and re-run first kernel to verify that results are consistent
+    cudaSetDevice( 1 );
+    cudaDeviceDisablePeerAccess( 0 );
+    cudaSetDevice( 0 ); 
+    cudaEventRecord( init_start, 0 );
+    // launch kernel on half domain and time execution *before* sharing memory
+    kernel_on_dev1<<< dim3( SZ, SZ, SZ / 2 ), 1 >>>( dev_buffer, dim3( SZ, SZ, SZ ), dim3( 0, 0, 0 ) ); 
+    cudaEventRecord( init_stop, 0 );
+    cudaEventSynchronize( init_stop );
+    cudaThreadSynchronize();
+    float elapsed_half_sharing_disable;
+    cudaEventElapsedTime( &elapsed_half_sharing_disable, init_start, init_stop );
+    std::cout << "\nKernel on first device on half domain after disabling sharing:  "
+              << elapsed_half_sharing_disable << " ms\n" << std::endl;
     
     cudaEventDestroy( init_start );
     cudaEventDestroy( init_stop  );
