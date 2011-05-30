@@ -67,7 +67,7 @@ __device__ real_t get_matrix_element( const real_t* m, //matrix
 //                declared as a global variable; the size of such buffer
 //                is specified at kernel launch as the third parameter
 //                in the <<< >>> operator
-extern __shared__ real_t cache[];
+__shared__ real_t* cache;
 
 // compute block matrix multiply:
 // - matrix block size == tile size == CUDA thread block size
