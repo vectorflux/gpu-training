@@ -1,6 +1,6 @@
 // #CSCS CUDA Training 
 //
-// #Exercise 7 - constant memory
+// #Example 7 - constant memory
 //
 // #Author Ugo Varetto
 //
@@ -17,13 +17,13 @@
 //
 // #Solution: implement and time different kernels:
 //            1) all the threads in a warp access the same element in the const array
-//            2) each threads in the grid accesses a different element in the const array
+//            2) each thread in the grid accesses a different element in the const array;
 //            redo the same for global memory timing the computation with events
 //
 // #Code: flow:
 //        1) compute launch grid configuration
 //        2) allocate data on host(cpu) and device(gpu)
-//        3) copy data from host ro device, in this case also copy to const global array on GPU
+//        3) copy data from host to device, in this case also copy to const global array on GPU
 //        4) launch and time kernels
 //        6) synchronize events to wait for end of execution 
 //        7) consume data (in this case print result and time)
@@ -33,22 +33,19 @@
 //
 // #Execution: ./constant-memory
 //
-// #Note: not how on arch 1.3 devices broadcast access is faster than parallel access in constant
+// #Note: note how on arch 1.3 devices broadcast access is faster than parallel access in constant
 //        memory (quite the opposite in global memory) because access to constant memory is serialized
 //        within half-warp: each half-warp can only access one element of const memory at a time     
 //       
-// #Note: the code is C++ also because the default compilation mode for CUDA is C++, all functions
-//        are named with C++ convention and the syntax is checked by default against C++ grammar rules 
+// #Note: kernel invocations ( foo<<<...>>>(...) ) are *always* asynchronous and a call to 
+//        cudaThreadSynchronize() is required to wait for the end of kernel execution from
+//        a host thread; in case of synchronous copy operations like cudaMemcpy(...,cudaDeviceToHost)
+//        kernel execution is guaranteed to be terminated before data are copied
 //
-// #Note: -arch=sm_13 allows the code to run on every card available on Eiger and possibly even
-//        on students' laptops; it's the identifier for the architecture before Fermi (sm_20);
-//        in this case when double precision is used the number of elements in the arrays must
-//        be divided by two to allow for weights to fit in 64kiB of const memory.
+// #Note: -arch=sm_13 allows the code to run on every card with hw architecture GT200 (gtx 2xx) or better
 //
 // #Note: -arch=sm_13 is the lowest architecture version that supports double precision
-//
-// #Note: the example can be extended to read configuration data and array size from the command line and
-//        investigating the optimal configuration for number of streams and chunk size
+
 
 
 #include <cuda.h>

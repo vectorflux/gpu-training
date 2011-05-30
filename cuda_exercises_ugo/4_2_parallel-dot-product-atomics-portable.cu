@@ -27,6 +27,11 @@
 //
 // #Execution: ./dot-product-atomics
 //
+// #Note: kernel invocations ( foo<<<...>>>(...) ) are *always* asynchronous and a call to 
+//        cudaThreadSynchronize() is required to wait for the end of kernel execution from
+//        a host thread; in case of synchronous copy operations like cudaMemcpy(...,cudaDeviceToHost)
+//        kernel execution is guaranteed to be terminated before data are copied
+//
 // #Note: also check cudaMemset, cudaErrorString, cudaGetLastError usage
 //
 // #Note: as of CUDA 3.2 it seems that kernels do not stall anymore when invoking

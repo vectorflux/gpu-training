@@ -1,10 +1,11 @@
 // #CSCS CUDA Training 
 //
-// #Exercise 6 - (block) matrix-matrix multiply with dynamically allocated shared memory
+// #Example 6 - (block) matrix-matrix multiply with dynamically allocated shared memory
 //
 // #Author: Ugo Varetto
 //
-// #Goal: multiply two matrices make use of (block)shared memory to accelerate the computation
+// #Goal: multiply two matrices make use of shared memory to accelerate the computation;
+//        the size of the shared memory buffer must be specified at run-time
 //
 // #Rationale: shows how shared memory can be dynamically allocated at kernel launch and 
 //             used to accelerate matrix-matrix operations   
@@ -18,7 +19,7 @@
 //        4)  read initialized data back from GPU so that we can use the same data on the CPU       
 //        5)  create events
 //        6)  issue time record request on start event
-//        7)  launch kernel specified the amount of shared memory to use = 2 x block size bytes
+//        7)  launch kernel specifying the amount of shared memory to use = 2 x block size bytes
 //        8)  issue time record request on stop event
 //        9)  synchronize stop event with end of kernel execution
 //        10) read data back and print upper left corner of result matrix
@@ -27,19 +28,20 @@
 //             
 // #Compilation: nvcc -arch=sm_13 6_matmul-dynamic-shared-mem.cu -o matmul-dynamic-shared-mem
 //
-// #Execution: ./matmul
+// #Execution: ./matmul-dynamic-shared-mem
 //
-// #Note: the code is C++ also because the default compilation mode for CUDA is C++, all functions
-//        are named with C++ convention and the syntax is checked by default against C++ grammar rules 
+// #Note: kernel invocations ( foo<<<...>>>(...) ) are *always* asynchronous and a call to 
+//        cudaThreadSynchronize() is required to wait for the end of kernel execution from
+//        a host thread; in case of synchronous copy operations like cudaMemcpy(...,cudaDeviceToHost)
+//        kernel execution is guaranteed to be terminated before data are copied
 //
-// #Note: -arch=sm_13 allows the code to run on every card available on Eiger and possibly even
-//        on students' laptops; it's the identifier for the architecture before Fermi (sm_20)
+// #Note: -arch=sm_13 allows the code to run on every card with hw architecture GT200 (gtx 2xx) or better
 //
 // #Note: -arch=sm_13 is the lowest architecture version that supports double precision
 //
 // #Note: the example can be extended to read configuration data and matrix size from the command line
 //
-// #Note: try on both G90 and GF100 architectures to verify the impact of L1 cache
+// #Note: try on both GT200 and GF100 architectures to verify the impact of L1 cache
  
 #include <cuda.h>
 #include <vector>

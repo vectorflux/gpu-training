@@ -1,6 +1,6 @@
 // #CSCS CUDA Training 
 //
-// #Exercise 10 - CUDA 4, peer to peer access, parallel execution on separate GPUs
+// #Example 10 - CUDA 4, peer to peer access, parallel execution on separate GPUs
 //
 // #Author Ugo Varetto
 //
@@ -30,15 +30,16 @@
 //
 // #Note: Requires at least two GPUs
 //
-// #Note: timing execution on separate parallel kernels requires separate events to be created and used
+// #Note: timing execution of separate parallel kernels requires separate events to be created and used
 //        in the context associated with each device i.e. invoke setDevice() before performing operations
 //        on events
 //
-// #Note: try to change the grid size and check how this affects performance 
+// #Note: kernel invocations ( foo<<<...>>>(...) ) are *always* asynchronous and a call to 
+//        cudaThreadSynchronize() is required to wait for the end of kernel execution from
+//        a host thread; in case of synchronous copy operations like cudaMemcpy(...,cudaDeviceToHost)
+//        kernel execution is guaranteed to be terminated before data are copied
 //
-// #Note: the code is C++ also because the default compilation mode for CUDA is C++, all functions
-//        are named with C++ convention and the syntax is checked by default against C++ grammar 
-//        rules 
+// #Note: try to change the grid size and check how this affects performance 
 
 #include <cuda.h>
 #include <iostream>

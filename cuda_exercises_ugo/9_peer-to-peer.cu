@@ -1,12 +1,12 @@
 // #CSCS CUDA Training 
 //
-// #Exercise 9 - CUDA 4, peer to peer access
+// #Example 9 - CUDA 4, peer to peer access
 //
 // #Author Ugo Varetto
 //
 // #Goal: run kernels on separate GPUs passing the same pointer to both kernels
 //
-// #Rationale: shows how memory can be accessed from kernels in separate GPUs 
+// #Rationale: shows how the same memory buffer can be accessed from kernels on separate GPUs 
 //
 // #Solution: use setCudaDevice and cudaEnablePeerAccess to select device and
 //            enable sharing of memory
@@ -24,14 +24,16 @@
 //
 // #Execution: ./peer-to-peer
 //
-// #Note: Fermi (2.0) or better required; must be compiled with sm_2x
+// #Note: kernel invocations ( foo<<<...>>>(...) ) are *always* asynchronous and a call to 
+//        cudaThreadSynchronize() is required to wait for the end of kernel execution from
+//        a host thread; in case of synchronous copy operations like cudaMemcpy(...,cudaDeviceToHost)
+//        kernel execution is guaranteed to be terminated before data are copied
+//
+// #Note: Fermi (2.0) or better required; must be compiled with -arch=sm_2x
 //
 // #Note: Requires at least two GPUs
-//
-// #Note: the code is C++ also because the default compilation mode for CUDA is C++, all functions
-//        are named with C++ convention and the syntax is checked by default against C++ grammar 
-//        rules 
-//
+
+
 
 #include <cuda.h>
 #include <iostream>
