@@ -26,8 +26,9 @@
 //        8) release texture memory 
 //        9) free memory
 //        
-// #Compilation: nvcc -arch=sm_13 8_1_texture-memory.cu -o texture-memory-2
-//
+// #Compilation: [no wrap] nvcc -arch=sm_13 8_1_texture-memory.cu -o texture-memory-2
+//               [wrap   ] nvcc -DTEXTURE_WRAP -arch=sm_13 8_1_texture-memory.cu -o texture-memory-2
+// 
 // #Execution: ./texture-memory-2 
 //
 // #warning: texture wrap mode doesn't seem to work with non-power-of-two textures 
