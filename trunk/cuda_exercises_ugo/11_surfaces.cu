@@ -203,6 +203,8 @@ __global__ void apply_stencil_surface( int gridNumRows,
 #endif                               
              s += tex2D( gridInTexArray, sj, si ) * 
                   tex2D( stencilTexArray, j + soff, i + soff );
+             // to read from surfaces: 
+             //surf2Dread( &s, ... );
         }
     }
     surf2Dwrite( s,  gridOutSurf, xStride * gridJ, gridI, cudaBoundaryModeTrap );
