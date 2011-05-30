@@ -1,6 +1,11 @@
 #pragma once
 #ifndef CUDA_ERROR_HANDLER_
 #define CUDA_ERROR_HANDLER_
+
+// CUDA Error handlers
+// Author: Ugo Varetto
+
+
 #include <cuda.h>
 #include <sstream>
 #include <stdexcept>
@@ -14,7 +19,7 @@
 //Textual information can be obtained from an error code through a call
 //to cudaGetErrorString.
 //Note that in CUDA kernel launches are asynchronous and it is therefore
-//possible to detect errors which cause a failed kernel launch, errors
+//possible only to detect errors which cause a failed kernel launch, errors
 //generated during kernel execution are not reported. 
 
 //usage: 
@@ -27,8 +32,8 @@
 //} catch( const std::exception& e ) {
 //    std::cerr << "e.what()" << std::endl;
 //}
-// w/o exceptions:
 //
+// w/o exceptions:
 // ...
 // DIE_ON_CUDA_ERROR( cudaMemcpy( ... ) );
 // ...
@@ -36,7 +41,7 @@
  
 
 //Note: 'inline' is required simply because the functions are defined inside an include;
-//      not adding it violates the one definition rules when multiple source file include
+//      not adding it violates the one definition rule when multiple source file include
 //      this include file 
 
 inline void HandleCUDAError( cudaError_t err,

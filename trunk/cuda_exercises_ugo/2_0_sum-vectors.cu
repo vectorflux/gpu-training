@@ -33,7 +33,7 @@
 //
 // #Note: kernel invocations ( foo<<<...>>>(...) ) are *always* asynchronous and a call to 
 //        cudaThreadSynchronize() is required to wait for the end of kernel execution from
-//        a host thread; in case synchronous copy operations like cudaMemcpy(...,cudaDeviceToHost)
+//        a host thread; in case of synchronous copy operations like cudaMemcpy(...,cudaDeviceToHost)
 //        kernel execution is guaranteed to be terminated before data are copied       
 //
 // #Note: the code is C++ also because the default compilation mode for CUDA is C++, all functions

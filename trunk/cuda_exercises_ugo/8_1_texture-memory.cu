@@ -1,6 +1,6 @@
 // #CSCS CUDA Training 
 //
-// #Exercise 8_1 - texture memory, 2D stencil
+// #Exercise 8.1 - texture memory, 2D stencil
 //
 // #Author Ugo Varetto
 //
@@ -19,7 +19,7 @@
 // #Code: 1) compute launch grid configuration
 //        2) allocate data on host(cpu) and device(gpu)
 //        3) map texture memory to pre-allocated gpu storage
-//        4) copy data from host ro device
+//        4) copy data from host to device
 //        5) launch kernel
 //        6) read data back
 //        7) consume data (in this case print result)
@@ -35,19 +35,16 @@
 // #Note: textures do not support directly 64 bit (double precision) floating point data 
 //        it is however possible to unpack doubles into int2 textures and reconstruct the double inside
 //        a kernel local variable
-//        Global time / Cached time == Cached time / Texture time ~= 2
 //
-// #Note: the code is C++ also because the default compilation mode for CUDA is C++, all functions
-//        are named with C++ convention and the syntax is checked by default against C++ grammar 
-//        rules 
+// #Note: Global time / Cached time == Cached time / Texture time ~= 2
 //
-// #Note: -arch=sm_13 allows the code to run on every card available on Eiger and possibly even
-//        on students' laptops; it's the identifier for the architecture before Fermi (sm_20)
-// #Note: -arch=sm_13 is the lowest architecture version that supports double precision
+// #Note: kernel invocations ( foo<<<...>>>(...) ) are *always* asynchronous and a call to 
+//        cudaThreadSynchronize() is required to wait for the end of kernel execution from
+//        a host thread; in case of synchronous copy operations like cudaMemcpy(...,cudaDeviceToHost)
+//        kernel execution is guaranteed to be terminated before data are copied 
 //
-// #Note: the example can be extended to read configuration data and array size from the command
-//        line and could be timed to investigate how performance is dependent on single/double
-//        precision and thread block size
+// #Note: -arch=sm_13 allows the code to run on every card with hw architecture GT200 (gtx 2xx) or better
+
 
 
 #include <cuda.h>
