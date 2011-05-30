@@ -192,8 +192,7 @@ __device__ double get_grid_element( const double* grid,
 }
 
 // threads + half stencil edge X threads + half stencil edge + stencil buffer size
-__shared__ double cache[];
-
+__shared__ double* cache;
 
 __global__ void apply_stencil_cached( const double* gridIn, 
                                       const double* stencilIn,
