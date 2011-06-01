@@ -41,7 +41,7 @@
 //
 // #Note: try to change the grid size and check how this affects performance 
 
-#include <cuda.h>
+//#include <cuda_runtime.h> // automatically added by nvcc
 #include <iostream>
 #include <vector>
 #include <string>

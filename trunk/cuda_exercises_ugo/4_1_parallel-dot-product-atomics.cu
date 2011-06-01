@@ -42,7 +42,7 @@
 //
 // #Note: -arch=sm_20 is the lowest architecture version supporting floating point atomics
 
-#include <cuda.h>
+//#include <cuda_runtime.h> // automatically added by nvcc
 #include <vector>
 #include <iostream>
 

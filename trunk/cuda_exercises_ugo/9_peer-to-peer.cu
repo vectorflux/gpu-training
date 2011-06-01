@@ -35,7 +35,7 @@
 
 
 
-#include <cuda.h>
+//#include <cuda_runtime.h> // automatically added by nvcc
 #include <iostream>
 #include <vector>
 

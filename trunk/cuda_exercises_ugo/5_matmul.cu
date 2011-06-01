@@ -41,7 +41,7 @@
 //
 // #Note: try on both GT200 and GF100 architectures to verify the impact of L1 cache
  
-#include <cuda.h>
+//#include <cuda_runtime.h> // automatically added by nvcc
 #include <vector>
 #include <iostream>
 
