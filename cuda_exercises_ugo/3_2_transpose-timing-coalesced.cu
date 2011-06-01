@@ -55,7 +55,7 @@
 //        can result in a 2x performance hit. (On Fermi class hardware, this seems to be true only
 //        when ECC is enabled. Contiguous-but-uncoalesced memory transactions take about a 20% hit on Fermi.)
 
-#include <cuda.h>
+//#include <cuda_runtime.h> // automatically added by nvcc
 #include <vector>
 #include <iostream>
 

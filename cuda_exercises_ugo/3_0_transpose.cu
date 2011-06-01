@@ -39,7 +39,7 @@
 //
 // #Note: the example can be extended to read configuration data and matrix size from the command line
 
-#include <cuda.h>
+//#include <cuda_runtime.h> // automatically added by nvcc
 #include <vector>
 #include <iostream>
 

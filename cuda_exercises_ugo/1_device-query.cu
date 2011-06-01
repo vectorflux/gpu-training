@@ -37,7 +37,7 @@
 
 
 #include <iostream>
-#include <cuda.h>
+//#include <cuda_runtime.h> // automatically added by nvcc
 
 
 int main( int argc, const char** argv) 

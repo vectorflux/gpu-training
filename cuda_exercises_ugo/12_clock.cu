@@ -34,7 +34,7 @@
 // #Note: -arch=sm_13 is the lowest architecture version that supports double precision
  
 
-#include <cuda.h>
+//#include <cuda_runtime.h> // automatically added by nvcc
 #include <iostream>
 
 typedef double real_t;
