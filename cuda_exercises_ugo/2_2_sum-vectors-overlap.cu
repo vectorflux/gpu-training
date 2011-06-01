@@ -77,7 +77,7 @@ typedef float real_t;
 __global__ void sum_vectors( const real_t* v1, const real_t* v2, real_t* out, size_t num_elements ) {
     // compute current thread id
     const int xIndex = blockIdx.x * blockDim.x + threadIdx.x;          
-    // since we assume that num threads >= num element we need to make sure we do note write outside the
+    // since we assume that num threads >= num element we need to make sure we do not write outside the
     // range of the output buffer 
     if( xIndex < num_elements ) out[ xIndex ] = v1[ xIndex ] + v2[ xIndex ];
 }
@@ -198,7 +198,7 @@ int main( int , char**  ) {
     cudaEventElapsedTime( &e, start, stop );
     std::cout << "elapsed time (ms): " << e << std::endl;   
     // print first and last element of vector
-    std::cout << "result: " << vout[ 0 ] << ".." << vout[ VECTOR_SIZE - 1 ] << std::endl;
+    std::cout << "result: " << vout.front() << ".." << vout[ VECTOR_SIZE - 1 ] << std::endl;
      
 
     // free memory
