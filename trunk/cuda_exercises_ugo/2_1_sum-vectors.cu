@@ -105,7 +105,7 @@ int main( int , char**  ) {
     cudaMemcpy( &vout[ 0 ], dev_out, SIZE, cudaMemcpyDeviceToHost );
     
     // print first and last element of vector
-    std::cout << "result: " << vout[ 0 ] << ".." << vout.back() << std::endl;
+    std::cout << "result: " << vout.front() << ".." << vout.back() << std::endl;
 
     // free memory
     cudaFree( dev_in1 );
