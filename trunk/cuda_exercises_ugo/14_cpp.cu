@@ -1,53 +1,41 @@
-//WORK IN PROGRESS !!!!!
-
 // #CSCS CUDA Training 
 //
 // #Example 14 - c++
 //
 // #Author Ugo Varetto
 //
-// #Goal: compute the scalar product of two 1D vectors using a number of GPU threads greater than or equal to
-//        the number of vector elements and not evenly divisible by the block size 
-
-// #Rationale: shows how to implement a kernel with a computation/memory configuration that matches
-//             the domain layout. Each threads computes at most one element of the output vector.
+// #Goal: implement 2D stencil operations in such a way that the stencil operation to perform
+//        is passed as a paramter to the GPU kernel
 //
-// #Solution: 
-//          . number of elements in the output array = E
-//          . number of threads per block = Tb         
-//          The number of blocks is = ( E + Tb - 1 ) div Tb where 'div' is the integer division operator   
-//          Each thread on the GPU computes one(thread id < vector size) or zero(thread id >= vector size)
-//          elements of the output vector.        
+// #Rationale: CUDA allows to use a subset of C++ in kernels; this is useful to write
+//             reusable code with operations which can be split into separate classes and
+//             composed as needed from withing the kernel
 //
+// #Solution: split stencil operations into:
+//            . an application function: data accessor, operation -> application function
+//            . a data access function: 2D coordinate -> (reference to) element
+//            . and a stencil operator: accessor -> stencil operation result
 //
-// #Code: typical flow:
+// #Code: 
 //        1) compute launch grid configuration
-//        2) allocate data on host(cpu) and device(gpu)
-//        3) copy data from host to device
-//        4) launch kernel
+//        2) init data on device
+//        3) launch kernel
 //        5) read data back
 //        6) consume data (in this case print result)
 //        7) free memory
 //        
-// #Compilation: nvcc -arch=sm_13 2_0_sum-vectors.cu -o sum-vectors-1
+// #Compilation: nvcc -arch=sm_13 14_cpp.cu -o cpp
 //
-// #Execution: ./sum-vectors-1 
+// #Execution: ./cpp
 //
 // #Note: kernel invocations ( foo<<<...>>>(...) ) are *always* asynchronous and a call to 
 //        cudaThreadSynchronize() is required to wait for the end of kernel execution from
 //        a host thread; in case of synchronous copy operations like cudaMemcpy(...,cudaDeviceToHost)
 //        kernel execution is guaranteed to be terminated before data are copied       
 //
-// #Note: the code is C++ also because the default compilation mode for CUDA is C++, all functions
-//        are named with C++ convention and the syntax is checked by default against C++ grammar rules 
-//
 // #Note: -arch=sm_13 allows the code to run on every card with hw architecture GT200 (gtx 2xx) or better
 //
 // #Note: -arch=sm_13 is the lowest architecture version that supports double precision
-//
-// #Note: the example can be extended to read configuration data and array size from the command line
-//        and could be timed to investigate how performance is dependent on single/double precision
-//        and thread block size
 
 
 //#include <cuda_runtime.h> // automatically added by nvcc
@@ -59,12 +47,13 @@
 
 typedef float real_t;
 
+//------------------------------------------------------------------------------
 __device__ size_t get_global_idx_2d( int rowOffset = 0, int colOffset = 0 ) {
-    const int gridWidth  = blockGrid.x * blockDim.x;
-    const int gridHeight = blockGrid.y * blockDim.y;
-    const int row = blockIdx.y * blockDim.y + threadIdx.y + rowOffset;
-    const int column = blockIdx.x * blockDim.x + threadIdx.x + colOffset;
-    // clamp at edge
+    const int gridWidth  = gridDim.x * blockDim.x;
+    const int gridHeight = gridDim.y * blockDim.y;
+    int row    = blockIdx.y * blockDim.y + threadIdx.y + rowOffset;
+    int column = blockIdx.x * blockDim.x + threadIdx.x + colOffset;
+    // clamp to edge 
     if( row >= gridHeight ) row = gridHeight - 1;
     else if( row < 0 ) row = 0;
     if( column >= gridWidth ) column = gridWidth - 1;
@@ -72,128 +61,129 @@ __device__ size_t get_global_idx_2d( int rowOffset = 0, int colOffset = 0 ) {
     return  row * gridWidth + column;
 }
 
+//------------------------------------------------------------------------------
 template < typename T > class In2DAccessor {
 public:
     typedef T element_type;
     typedef const element_type* pointer_type;
     typedef const element_type& reference_type;
-    In2DAccessor( pointer_type grid ) : grid2D_( grid ) {}
-    __host__ __device__ In2DAccessor( const In2DAccessor& a ) {
-        grid2D_ = a.grid2D_;
-    }
-    __device__ reference_type operator( int i = 0, int j = 0 )() const {
+    __host__ In2DAccessor( pointer_type grid ) : grid2D_( grid ) {}
+    __device__ reference_type operator()( int i = 0, int j = 0 ) const {
         return grid2D_[ get_global_idx_2d( i, j ) ];
     }
 private:
     pointer_type grid2D_;          
 };
 
-
+//------------------------------------------------------------------------------
 template < typename T > class Out2DAccessor {
 public:
     typedef T element_type;
     typedef element_type* pointer_type;
     typedef element_type& reference_type;
-    In2DAccessor( pointer_type grid ) : grid2D_( grid ) {}
-    __host__ __device__ In2DAccessor( const In2DAccessor& a ) {
-        grid2D_ = a.grid2D_;
-    }
-    __device__ reference_type operator( int i = 0, int j = 0 )() {
+    __host__ Out2DAccessor( pointer_type grid ) : grid2D_( grid ) {}
+    __device__ reference_type operator()( int i = 0, int j = 0 ) {
         return grid2D_[ get_global_idx_2d( i, j ) ];
     }
 private:
     pointer_type grid2D_;             
 };
 
-
+//------------------------------------------------------------------------------
 template < int width, int height > struct StencilOperator {
     enum { WIDTH = width, HEIGHT = height };
     enum { WIDTH_MIN_OFFSET = -width / 2, WIDTH_MAX_OFFSET = width / 2,
            HEIGHT_MIN_OFFSET = -height / 2, HEIGHT_MAX_OFFSET = height / 2 };
+    enum { AREA = width * height };       
 }; 
 
-
-template < typename T > struct Average3x3 : StencilOperator< 3, 3 > {
-    operator()( const In2DAccessor& a ) {
+//------------------------------------------------------------------------------
+template < typename T, int width, int height > struct Average : StencilOperator< width, height > {
+    template < typename In2DAccessor >
+    __device__ T operator()( const In2DAccessor& a ) {
         T out = T();
         for( int i = -HEIGHT_MIN_OFFSET; i <= HEIGHT_MAX_OFFSET; ++i ) {
             for( int j = -WIDTH_MIN_OFFSET; j <= WIDTH_MAX_OFFSET; ++j ) {
-                out += a( i, j ) * 1./9.;
+                out += a( i, j ) * 1. / AREA; // ideally the loop nest should be in the base class
             }        
         }
         return out;                
     }    
-}; 
+};
 
+template < typename T > struct Init /*: StencilOperator< 1, 1 >*/ {
+    template < typename InOut2DAccessor >
+    __device__ T operator()( const InOut2DAccessor&  ) {
+        return ( blockIdx.x + blockIdx.y ) % 2 == 0 ? T( 1 ) : T( 0 );                
+    }    
+};  
 
-template< typename StencilOperator,
-          typename InAccessor,
-          typename OutAccessor > 
-__global__ void apply_stencil( InAccessor i, OutAccessor o, StencilOperator op ) {
-    o() = op( i ); 
+//------------------------------------------------------------------------------
+template< typename InOutAccessor,
+          typename StencilOperator > 
+__global__ void apply_stencil_1( InOutAccessor io, StencilOperator op ) { 
+    io() = op( io );
 }
 
 
-
-// In this case the kernel assumes that the computation was started with enough threads to cover the entire domain.
-// This is the preferred solution provided there are enough threads to cover the entire domain which might not be the
-// case in case of a 1D grid layout (max number of threads = 512 threads per block x 65536  blocks = 2^25 = 32 Mi threads)
-__global__ void sum_vectors( const real_t* v1, const real_t* v2, real_t* out, size_t num_elements ) {
-    // compute current thread id
-    const int xIndex = blockIdx.x * blockDim.x + threadIdx.x;          
-    // since we assume that num threads >= num element we need to make sure we do not write outside the
-    // range of the output buffer 
-    if( xIndex < num_elements ) out[ xIndex ] = v1[ xIndex ] + v2[ xIndex ];
+template< typename InAccessor,
+          typename OutAccessor,
+          typename StencilOperator > 
+__global__ void apply_stencil_2( InAccessor in, OutAccessor out, StencilOperator op ) { 
+    out() = op( in );
 }
 
-
+//------------------------------------------------------------------------------
 
 
 //------------------------------------------------------------------------------
 int main( int , char**  ) {
     
-    const int VECTOR_SIZE = 0x10000 + 1; //vector size 65537
-    const int SIZE = sizeof( real_t ) * VECTOR_SIZE; // total size in bytes
-    const int THREADS_PER_BLOCK = 32; //number of gpu threads per block
+    const int NUM_ROWS    = 1024;
+    const int NUM_COLUMNS = 1024;
+    const int NUM_ELEMENTS = NUM_ROWS * NUM_COLUMNS; 
+    const int TOTAL_SIZE = sizeof( real_t ) * NUM_ELEMENTS; // total size in bytes
+    const int THREADS_PER_BLOCK_HEIGHT = 16; //number of gpu threads per block along height
+    const int THREADS_PER_BLOCK_WIDTH  = 16; //number of gpu threads per block along width
     
     // block size: the number of threads per block multiplied by the number of blocks
-    // must be at least equal to NUMBER_OF_THREADS 
-    const int NUMBER_OF_BLOCKS = ( VECTOR_SIZE + THREADS_PER_BLOCK - 1 ) / THREADS_PER_BLOCK;
-    // if number of threads is not evenly divisable by the number of threads per block 
-    // we need an additional block; the above code can be rewritten as
-    // if( NUMBER_OF_THREADS % THREADS_PER_BLOCK == 0) BLOCK_SIZE = NUMBER_OF_THREADS / THREADS_PER_BLOCK;
-    // else BLOCK_SIZE = NUMBER_OF_THREADS / THREADS_PER_BLOCK + 1 
-
-    // host allocated storage; use std vectors to simplify memory management
-    // and initialization
-    std::vector< real_t > v1  ( VECTOR_SIZE, 1.f ); //initialize all elements to 1
-    std::vector< real_t > v2  ( VECTOR_SIZE, 2.f ); //initialize all elements to 2   
-    std::vector< real_t > vout( VECTOR_SIZE, 0.f ); //initialize all elements to 0
+    // must be at least equal to the number of elements to process
+    const int NUMBER_OF_BLOCKS_HEIGHT = 
+        ( NUM_ROWS    + THREADS_PER_BLOCK_HEIGHT - 1 ) / THREADS_PER_BLOCK_HEIGHT;
+    const int NUMBER_OF_BLOCKS_WIDTH  = 
+        ( NUM_COLUMNS + THREADS_PER_BLOCK_WIDTH - 1  ) / THREADS_PER_BLOCK_WIDTH;
 
     // gpu allocated storage
-    real_t* dev_in1 = 0; //vector 1
-    real_t* dev_in2 = 0; //vector 2
-    real_t* dev_out = 0; //result value
-    cudaMalloc( &dev_in1, SIZE );
-    cudaMalloc( &dev_in2, SIZE );
-    cudaMalloc( &dev_out, SIZE  );
+    real_t* dev_in = 0; //in grid
+    real_t* dev_out = 0; //out grid
+    cudaMalloc( &dev_in, TOTAL_SIZE );
+    cudaMalloc( &dev_out, TOTAL_SIZE );
     
-    // copy data to GPU
-    cudaMemcpy( dev_in1, &v1[ 0 ], SIZE, cudaMemcpyHostToDevice );
-    cudaMemcpy( dev_in2, &v2[ 0 ], SIZE, cudaMemcpyHostToDevice );
+    // reuse Out2DAccessor as I/O accessor for initializing data
+    typedef Out2DAccessor< real_t > InOut2DAccessor;
 
-    // execute kernel with num threads >= num elements
-    sum_vectors<<<NUMBER_OF_BLOCKS, THREADS_PER_BLOCK>>>( dev_in1, dev_in2, dev_out, VECTOR_SIZE );
+    // init data
+    apply_stencil_1<<< dim3( NUM_COLUMNS, NUM_ROWS, 1 ), 1 >>>( InOut2DAccessor( dev_in ),
+                                                                Init< real_t >() );
     
-    // read back result 
-    cudaMemcpy( &vout[ 0 ], dev_out, SIZE, cudaMemcpyDeviceToHost );
+
+    // apply averaging kernel
+    const dim3  blocks( NUMBER_OF_BLOCKS_WIDTH,  NUMBER_OF_BLOCKS_HEIGHT,  1 );
+    const dim3 threads( THREADS_PER_BLOCK_WIDTH, THREADS_PER_BLOCK_HEIGHT, 1 );
+    apply_stencil_2<<< blocks, threads >>>( In2DAccessor< real_t >( dev_in ),
+                                            Out2DAccessor< real_t >( dev_out ),
+                                            Average< real_t, 3, 3 >() );
+                                                                                   
+    
+    // read back result
+    std::vector< real_t > vout( NUM_ELEMENTS ); 
+    cudaMemcpy( &vout[ 0 ], dev_out, TOTAL_SIZE, cudaMemcpyDeviceToHost );
     
     // print first and last element of vector
     std::cout << "result: " << vout.front() << ".." << vout.back() << std::endl;
 
     // free memory
-    cudaFree( dev_in1 );
-    cudaFree( dev_in2 );
+    cudaFree( dev_in );
     cudaFree( dev_out );
 
     return 0;
