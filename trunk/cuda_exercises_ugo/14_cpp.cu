@@ -1,6 +1,6 @@
 // #CSCS CUDA Training 
 //
-// #Example 14 - c++
+// #Example 14 - C++
 //
 // #Author Ugo Varetto
 //
@@ -44,6 +44,7 @@
 #include <iomanip>
 #include <sstream>
 #include <string>
+#include <ctime>
 
 typedef float real_t;
 
@@ -102,8 +103,8 @@ template < typename T, int width, int height > struct Average : StencilOperator<
     template < typename In2DAccessor >
     __device__ T operator()( const In2DAccessor& a ) {
         T out = T();
-        for( int i = -HEIGHT_MIN_OFFSET; i <= HEIGHT_MAX_OFFSET; ++i ) {
-            for( int j = -WIDTH_MIN_OFFSET; j <= WIDTH_MAX_OFFSET; ++j ) {
+        for( int i = HEIGHT_MIN_OFFSET; i <= HEIGHT_MAX_OFFSET; ++i ) {
+            for( int j = WIDTH_MIN_OFFSET; j <= WIDTH_MAX_OFFSET; ++j ) {
                 out += a( i, j ) * 1. / AREA; // ideally the loop nest should be in the base class
             }        
         }
@@ -134,13 +135,60 @@ __global__ void apply_stencil_2( InAccessor in, OutAccessor out, StencilOperator
 }
 
 //------------------------------------------------------------------------------
+__global__ void apply_3x3average( const real_t* vin, real_t* vout ) {
+    real_t out = 0.f;
+    const int HEIGHT_MIN_OFFSET = -1;
+    const int HEIGHT_MAX_OFFSET =  1;
+    const int WIDTH_MIN_OFFSET  = -1;
+    const int WIDTH_MAX_OFFSET  =  1;
+    const int AREA = 9;
+    for( int i = HEIGHT_MIN_OFFSET; i <= HEIGHT_MAX_OFFSET; ++i ) {
+        for( int j = WIDTH_MIN_OFFSET; j <= WIDTH_MAX_OFFSET; ++j ) {
+            out += vin[ get_global_idx_2d( i, j ) ] * 1. / AREA; // ideally the loop nest should be in the base class
+        }        
+    }
+    vout[ get_global_idx_2d() ] = out;             
+}
 
+
+//------------------------------------------------------------------------------
+size_t get_global_idx_2d_host( int row, int col, int offRow, int offCol, int numRows, int numColumns ) {    
+    int rowIdx = row + offRow;
+    int colIdx = col + offCol;
+    rowIdx = std::min( numRows - 1, rowIdx );
+    rowIdx = std::max( 0, rowIdx );
+    colIdx = std::min( numColumns - 1, colIdx );
+    colIdx = std::max( 0, colIdx );    
+    return rowIdx * numColumns + colIdx;
+}
+
+void apply_3x3average_host( const real_t* vin, real_t* vout, int num_rows, int num_columns ) {
+    const int HEIGHT_MIN_OFFSET = -1;
+    const int HEIGHT_MAX_OFFSET =  1;
+    const int WIDTH_MIN_OFFSET  = -1;
+    const int WIDTH_MAX_OFFSET  =  1;
+    const int AREA = 9;
+    
+    for( int row = 0; row != num_rows; ++row ) {
+        for( int col = 0; col != num_columns; ++col ) {
+            real_t out = 0.f;
+            for( int i = HEIGHT_MIN_OFFSET; i <= HEIGHT_MAX_OFFSET; ++i ) {
+                for( int j = WIDTH_MIN_OFFSET; j <= WIDTH_MAX_OFFSET; ++j ) {
+                    out += 
+                        vin[ get_global_idx_2d_host( row, col, i, j, num_rows, num_columns ) ] 
+                        * 1. / AREA; // ideally the loop nest should be in the base class
+                }        
+            }
+            vout[ get_global_idx_2d_host( row, col, 0, 0, num_rows, num_columns ) ] = out;    
+        }
+    }             
+}
 
 //------------------------------------------------------------------------------
 int main( int , char**  ) {
     
-    const int NUM_ROWS    = 1024;
-    const int NUM_COLUMNS = 1024;
+    const int NUM_ROWS    = 4096;
+    const int NUM_COLUMNS = 4096;
     const int NUM_ELEMENTS = NUM_ROWS * NUM_COLUMNS; 
     const int TOTAL_SIZE = sizeof( real_t ) * NUM_ELEMENTS; // total size in bytes
     const int THREADS_PER_BLOCK_HEIGHT = 16; //number of gpu threads per block along height
@@ -167,20 +215,46 @@ int main( int , char**  ) {
                                                                 Init< real_t >() );
     
 
+    cudaEvent_t start, stop;
+    cudaEventCreate( &start );
+    cudaEventCreate( &stop  );
+    float elapsed;
+    
     // apply averaging kernel
     const dim3  blocks( NUMBER_OF_BLOCKS_WIDTH,  NUMBER_OF_BLOCKS_HEIGHT,  1 );
     const dim3 threads( THREADS_PER_BLOCK_WIDTH, THREADS_PER_BLOCK_HEIGHT, 1 );
+    cudaEventRecord( start, 0 );
     apply_stencil_2<<< blocks, threads >>>( In2DAccessor< real_t >( dev_in ),
                                             Out2DAccessor< real_t >( dev_out ),
                                             Average< real_t, 3, 3 >() );
-                                                                                   
-    
+    cudaEventRecord( stop, 0 );
+    cudaEventSynchronize( stop );                                                                               
+    cudaEventElapsedTime( &elapsed, start, stop );
     // read back result
     std::vector< real_t > vout( NUM_ELEMENTS ); 
     cudaMemcpy( &vout[ 0 ], dev_out, TOTAL_SIZE, cudaMemcpyDeviceToHost );
-    
     // print first and last element of vector
-    std::cout << "result: " << vout.front() << ".." << vout.back() << std::endl;
+    std::cout << "time: " << elapsed << " ms - result: " << vout.front() << ".." << vout.back() << std::endl;
+
+    cudaEventRecord( start, 0 );
+    apply_3x3average<<< blocks, threads >>>( dev_in, dev_out );
+    cudaEventRecord( stop, 0 );
+    cudaEventSynchronize( stop );
+    cudaEventElapsedTime( &elapsed, start, stop );
+    // read back result
+    cudaMemcpy( &vout[ 0 ], dev_out, TOTAL_SIZE, cudaMemcpyDeviceToHost );
+    // print first and last element of vector
+    std::cout << "time: " << elapsed << " ms - result: " << vout.front() << ".." << vout.back() << std::endl;
+
+
+    std::vector< real_t > vin( NUM_ELEMENTS );
+    cudaMemcpy( &vin[ 0 ], dev_in, TOTAL_SIZE, cudaMemcpyDeviceToHost );
+    const clock_t begin = clock();
+    apply_3x3average_host( &vin[ 0 ], &vout[ 0 ], NUM_ROWS, NUM_COLUMNS );
+    const clock_t end = clock();
+    std::cout << "time: " << ( end - begin ) / CLOCKS_PER_SEC << " ms - result " 
+              << vout.front() << ".." << vout.back() << std::endl;  
+
 
     // free memory
     cudaFree( dev_in );
