@@ -102,10 +102,11 @@ template < int width, int height > struct StencilOperator {
 template < typename T, int width, int height > struct Average : StencilOperator< width, height > {
     template < typename In2DAccessor >
     __device__ T operator()( const In2DAccessor& a ) {
+        const real_t W = 1.f / AREA;
         T out = T();
         for( int i = HEIGHT_MIN_OFFSET; i <= HEIGHT_MAX_OFFSET; ++i ) {
             for( int j = WIDTH_MIN_OFFSET; j <= WIDTH_MAX_OFFSET; ++j ) {
-                out += a( i, j ) * 1. / AREA; // ideally the loop nest should be in the base class
+                out += a( i, j ) * W; // ideally the loop nest should be in the base class
             }        
         }
         return out;                
@@ -137,17 +138,24 @@ __global__ void apply_stencil_2( InAccessor in, OutAccessor out, StencilOperator
 //------------------------------------------------------------------------------
 __global__ void apply_3x3average( const real_t* vin, real_t* vout ) {
     real_t out = 0.f;
-    const int HEIGHT_MIN_OFFSET = -1;
-    const int HEIGHT_MAX_OFFSET =  1;
-    const int WIDTH_MIN_OFFSET  = -1;
-    const int WIDTH_MAX_OFFSET  =  1;
-    const int AREA = 9;
-    for( int i = HEIGHT_MIN_OFFSET; i <= HEIGHT_MAX_OFFSET; ++i ) {
-        for( int j = WIDTH_MIN_OFFSET; j <= WIDTH_MAX_OFFSET; ++j ) {
-            out += vin[ get_global_idx_2d( i, j ) ] * 1. / AREA; // ideally the loop nest should be in the base class
+    const real_t W = 1.f / 9.f;
+    const int gridWidth  = gridDim.x * blockDim.x;
+    const int gridHeight = gridDim.y * blockDim.y;
+    int row    = blockIdx.y * blockDim.y + threadIdx.y;
+    int column = blockIdx.x * blockDim.x + threadIdx.x;
+    for( int i = -1; i <= 1; ++i ) {
+        int rowIdx = row + i;
+        if( rowIdx < 0 ) rowIdx = 0;
+        else if( rowIdx >= gridHeight ) rowIdx = gridHeight - 1;
+        for( int j = -1; j <= 1; ++j ) {
+            int colIdx = column + j;
+            if( colIdx < 0 ) colIdx = 0;
+            else if( colIdx >= gridWidth ) colIdx = gridWidth - 1;
+            out += vin[ rowIdx * gridWidth + colIdx ] * W;  
+            //out += vin[ get_global_idx_2d( i, j ) ] * 1. / AREA; // ideally the loop nest should be in the base class
         }        
     }
-    vout[ get_global_idx_2d() ] = out;             
+    vout[ row * gridWidth + column ] = out;             
 }
 
 
@@ -163,20 +171,15 @@ size_t get_global_idx_2d_host( int row, int col, int offRow, int offCol, int num
 }
 
 void apply_3x3average_host( const real_t* vin, real_t* vout, int num_rows, int num_columns ) {
-    const int HEIGHT_MIN_OFFSET = -1;
-    const int HEIGHT_MAX_OFFSET =  1;
-    const int WIDTH_MIN_OFFSET  = -1;
-    const int WIDTH_MAX_OFFSET  =  1;
-    const int AREA = 9;
-    
+    const real_t W = 1.f / 9.f;
     for( int row = 0; row != num_rows; ++row ) {
         for( int col = 0; col != num_columns; ++col ) {
             real_t out = 0.f;
-            for( int i = HEIGHT_MIN_OFFSET; i <= HEIGHT_MAX_OFFSET; ++i ) {
-                for( int j = WIDTH_MIN_OFFSET; j <= WIDTH_MAX_OFFSET; ++j ) {
+            for( int i = -1; i <= 1; ++i ) {
+                for( int j = -1; j <= 1; ++j ) {
                     out += 
                         vin[ get_global_idx_2d_host( row, col, i, j, num_rows, num_columns ) ] 
-                        * 1. / AREA; // ideally the loop nest should be in the base class
+                        * W; // ideally the loop nest should be in the base class
                 }        
             }
             vout[ get_global_idx_2d_host( row, col, 0, 0, num_rows, num_columns ) ] = out;    
@@ -252,7 +255,7 @@ int main( int , char**  ) {
     const clock_t begin = clock();
     apply_3x3average_host( &vin[ 0 ], &vout[ 0 ], NUM_ROWS, NUM_COLUMNS );
     const clock_t end = clock();
-    std::cout << "time: " << ( end - begin ) / CLOCKS_PER_SEC << " ms - result " 
+    std::cout << "time: " << 1000 * ( end - begin ) / double( CLOCKS_PER_SEC ) << " ms - result " 
               << vout.front() << ".." << vout.back() << std::endl;  
 
 
