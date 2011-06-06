@@ -77,8 +77,7 @@ __device__ size_t get_global_idx_2d( int rowOffset = 0, int colOffset = 0 ) {
 //------------------------------------------------------------------------------
 // return global 1d index from 2d index + offset; in this case the 2d index
 // is assumed to be always within the grid core space (whole grid - halo regions)
-__device__ size_t get_global_idx_2d_core_space( int rowOffset = 0, int colOffset = 0 ) {
-    const int gridWidth  = gridDim.x * blockDim.x;
+__device__ size_t get_global_idx_2d_core_space( int gridWidth, int rowOffset = 0, int colOffset = 0 ) {
     const int row    = blockIdx.y * blockDim.y + threadIdx.y + rowOffset;
     const int column = blockIdx.x * blockDim.x + threadIdx.x + colOffset;
     return  row * gridWidth + column;
@@ -160,16 +159,17 @@ public:
     typedef T element_type;
     typedef const element_type* pointer_type;
     typedef const element_type& reference_type;
-    __host__ In2DCoreAccessor( pointer_type grid ) 
-        : grid2D_( grid ) {}
+    __host__ In2DCoreAccessor( pointer_type grid, int fullGridWidth ) 
+        : grid2D_( grid ), fullGridWidth_( fullGridWidth )  {}
     __device__ reference_type operator()( int i = 0, int j = 0 ) const {
         return grid2D_[ 
-            get_global_idx_2d_core_space( 
+            get_global_idx_2d_core_space( fullGridWidth_, 
                 i + StencilOperatorT::CORE_SPACE_ROW_OFFSET,
                 j + StencilOperatorT::CORE_SPACE_COL_OFFSET ) ];
     }
 private:
     pointer_type grid2D_;
+    int fullGridWidth_; // grid width = core space width + halo width
 };
 
 //------------------------------------------------------------------------------
@@ -178,21 +178,23 @@ public:
     typedef T element_type;
     typedef element_type* pointer_type;
     typedef element_type& reference_type;
-    __host__ Out2DCoreAccessor( pointer_type grid ) : grid2D_( grid ) {}
+    __host__ Out2DCoreAccessor( pointer_type grid, int fullGridWidth ) 
+        : grid2D_( grid ), fullGridWidth_( fullGridWidth )  {} 
     __device__ reference_type operator()( int i = 0, int j = 0 ) {
         return grid2D_[ 
-            get_global_idx_2d_core_space( 
+            get_global_idx_2d_core_space( fullGridWidth_, 
                 i + StencilOperatorT::CORE_SPACE_ROW_OFFSET,
                 j + StencilOperatorT::CORE_SPACE_COL_OFFSET ) ];
     }
 private:
-    pointer_type grid2D_;             
+    pointer_type grid2D_;
+    int fullGridWidth_; // grid width = core space width + halo width             
 };
 
 
 //------------------------------------------------------------------------------
 template < int width, int height > struct StencilOperator {
-    enum { CORE_SPACE_ROW_OFFSET = height / 2, CORE_SPACE_COL_OFFSET = width };
+    enum { CORE_SPACE_ROW_OFFSET = height / 2, CORE_SPACE_COL_OFFSET = width / 2 };
     enum { WIDTH = width, HEIGHT = height };
     enum { WIDTH_MIN_OFFSET = -width / 2, WIDTH_MAX_OFFSET = width / 2,
            HEIGHT_MIN_OFFSET = -height / 2, HEIGHT_MAX_OFFSET = height / 2 };
@@ -214,7 +216,7 @@ template < typename T, int width, int height > struct Average : StencilOperator<
     }    
 };
 
-template < typename T > struct Average3x3 /*: StencilOperator< 3, 3 >*/ {
+template < typename T > struct Average3x3 : StencilOperator< 3, 3 > {
     template < typename In2DAccessor >
     __device__ T operator()( const In2DAccessor& a ) {
         const real_t W = 1.f / 9.f;
@@ -225,7 +227,7 @@ template < typename T > struct Average3x3 /*: StencilOperator< 3, 3 >*/ {
 };
 
 
-template < typename T > struct Init /*: StencilOperator< 1, 1 >*/ {
+template < typename T > struct Init : StencilOperator< 1, 1 > {
     template < typename InOut2DAccessor >
     __device__ T operator()( const InOut2DAccessor&  ) {
         return ( blockIdx.x + blockIdx.y ) % 2 == 0 ? T( 1 ) : T( 0 );                
@@ -269,6 +271,24 @@ __global__ void apply_3x3average( const real_t* vin, real_t* vout ) {
             if( colIdx < 0 ) colIdx = 0;
             else if( colIdx >= gridWidth ) colIdx = gridWidth - 1;
 #endif            
+            out += vin[ rowIdx * gridWidth + colIdx ] * W;
+        }        
+    }
+    vout[ row * gridWidth + column ] = out;
+    // note: the loop is faster than explicilt unrolling with multiple calls to get_global_idx_2d    
+}
+
+//------------------------------------------------------------------------------
+__global__ void apply_3x3average_core( const real_t* vin, real_t* vout ) {
+    real_t out = 0.f;
+    const real_t W = 1.f / 9.f;
+    const int gridWidth  = gridDim.x * blockDim.x;
+    const int row    = blockIdx.y * blockDim.y + threadIdx.y;
+    const int column = blockIdx.x * blockDim.x + threadIdx.x;
+    for( int i = -1; i <= 1; ++i ) {
+        int rowIdx = row + i;     
+        for( int j = -1; j <= 1; ++j ) {
+            int colIdx = column + j;
             out += vin[ rowIdx * gridWidth + colIdx ] * W;
         }        
     }
@@ -336,6 +356,7 @@ void apply_3x3average_host( const real_t* vin, real_t* vout, int num_rows, int n
                  
 }
 
+#define p std::cout << __LINE__ - 1 << "> " << cudaGetErrorString( cudaGetLastError() ) << std::endl;
 
 //==============================================================================
 //------------------------------------------------------------------------------
@@ -345,8 +366,8 @@ int main( int , char**  ) {
     const int NUM_COLUMNS = 4096;
     const int NUM_ELEMENTS = NUM_ROWS * NUM_COLUMNS; 
     const int TOTAL_SIZE = sizeof( real_t ) * NUM_ELEMENTS; // total size in bytes
-    const int THREADS_PER_BLOCK_HEIGHT = 16; //number of gpu threads per block along height
-    const int THREADS_PER_BLOCK_WIDTH  = 16; //number of gpu threads per block along width
+    const int THREADS_PER_BLOCK_HEIGHT = 1;//16; //number of gpu threads per block along height
+    const int THREADS_PER_BLOCK_WIDTH  = 1;//16; //number of gpu threads per block along width
     
     // block size: the number of threads per block multiplied by the number of blocks
     // must be at least equal to the number of elements to process
@@ -425,7 +446,6 @@ int main( int , char**  ) {
     // 2 - stencil on core space (whole grid - halo) only
     std::cout << "\n--- HALO ---\n" << std::endl; 
 
-
     typedef Average< real_t, 3, 3 > StencilOp;
     
     // the grid uploaded to the GPU is the same as before but we apply the stencil
@@ -433,45 +453,55 @@ int main( int , char**  ) {
     
     const int HALO_WIDTH  = Average< real_t, 3, 3 >::WIDTH;  // == stencil width
     const int HALO_HEIGHT = Average< real_t, 3, 3 >::HEIGHT; // == stencil height
+    const int HALO_OFFSET_WIDTH  = 2 * ( HALO_WIDTH  / 2 ); // e.g. 2 * (3 div 2) == 2
+    const int HALO_OFFSET_HEIGHT = 2 * ( HALO_HEIGHT / 2 ); // e.g. 2 * (3 div 2) == 2
     // block size: the number of threads per block multiplied by the number of blocks
     // must be at least equal to the number of elements to process
     const int CORE_NUMBER_OF_BLOCKS_HEIGHT = 
-        ( NUM_ROWS - HALO_HEIGHT + THREADS_PER_BLOCK_HEIGHT  - 1 ) / THREADS_PER_BLOCK_HEIGHT;
+        ( NUM_ROWS - HALO_OFFSET_HEIGHT + THREADS_PER_BLOCK_HEIGHT  - 1 ) 
+        / THREADS_PER_BLOCK_HEIGHT;
     const int CORE_NUMBER_OF_BLOCKS_WIDTH  = 
-        ( NUM_COLUMNS - HALO_WIDTH + THREADS_PER_BLOCK_WIDTH - 1 ) / THREADS_PER_BLOCK_WIDTH;
-
+        ( NUM_COLUMNS - HALO_OFFSET_WIDTH + THREADS_PER_BLOCK_WIDTH - 1 ) 
+        / THREADS_PER_BLOCK_WIDTH;
 
     blocks = dim3( CORE_NUMBER_OF_BLOCKS_WIDTH,  CORE_NUMBER_OF_BLOCKS_HEIGHT, 1 );
     
     cudaEventRecord( start, 0 );
-    apply_stencil_2<<< blocks, threads >>>( In2DCoreAccessor< real_t, StencilOp >( dev_in ),
-                                            Out2DCoreAccessor< real_t, StencilOp >( dev_out ),                                  
-                                            Average< real_t, 3, 3 >() );                                            
+    apply_stencil_2<<< blocks, threads >>>( 
+        In2DCoreAccessor< real_t, StencilOp >( dev_in, NUM_COLUMNS ),
+        Out2DCoreAccessor< real_t, StencilOp >( dev_out, NUM_COLUMNS ),
+        Average< real_t, 3, 3 >() );                                            
+p
     cudaEventRecord( stop, 0 );
     cudaEventSynchronize( stop );                                                                               
+p
     cudaEventElapsedTime( &elapsed, start, stop );
     // read back result
     cudaMemcpy( &vout[ 0 ], dev_out, TOTAL_SIZE, cudaMemcpyDeviceToHost );
-    
+p    
     // print first and last element of vector
     std::cout << "C++ kernel: time: " << elapsed << " ms - result: " << vout.front() << ".." 
               << vout.back() << std::endl;
 
     cudaEventRecord( start, 0 );
-    apply_3x3average<<< blocks, threads >>>( dev_in, dev_out );
+    apply_3x3average_core<<< blocks, threads >>>( dev_in, dev_out );
+p
+
     cudaEventRecord( stop, 0 );
     cudaEventSynchronize( stop );
     cudaEventElapsedTime( &elapsed, start, stop );
     // read back result
     cudaMemcpy( &vout[ 0 ], dev_out, TOTAL_SIZE, cudaMemcpyDeviceToHost );
+p
     // print first and last element of vector
     std::cout << "C kernel:   time: " << elapsed << " ms - result: " << vout.front() << ".." 
               << vout.back() << std::endl;
 
     cudaMemcpy( &vin[ 0 ], dev_in, TOTAL_SIZE, cudaMemcpyDeviceToHost );
+p
     begin = clock();
-    apply_3x3average_host_core( &vin[ 0 ], &vout[ 0 ], NUM_ROWS - HALO_HEIGHT, 
-                                NUM_COLUMNS - HALO_WIDTH,
+    apply_3x3average_host_core( &vin[ 0 ], &vout[ 0 ], NUM_ROWS - HALO_OFFSET_HEIGHT, 
+                                NUM_COLUMNS - HALO_OFFSET_WIDTH,
                                 HALO_HEIGHT / 2, HALO_WIDTH / 2, NUM_COLUMNS );
     end = clock();
     std::cout << "CPU kernel: time: " << 1000 * ( end - begin ) / double( CLOCKS_PER_SEC ) 
@@ -479,7 +509,8 @@ int main( int , char**  ) {
 
     // free memory
     cudaFree( dev_in );
+p
     cudaFree( dev_out );
-
+p
     return 0;
 }
