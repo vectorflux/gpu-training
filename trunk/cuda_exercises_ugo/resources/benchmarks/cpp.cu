@@ -102,13 +102,13 @@ __global__ void memcpy_2d_kernel( const real_t* in, real_t* out,
     const int col = blockIdx.x * blockDim.x + threadIdx.x;
     if( row < numRows && col < numColumns ) {
         const int inIdx = ( row + rowOffset ) * inNumColumns + ( col + colOffset );
-        const int outIdx = row * gridDim.x * blockDim.x + col;    
+        const int outIdx = row * numColumns + col;    
         out[ outIdx ] = in[ inIdx ];
     }
-    else {
-        const int outIdx = row * gridDim.x * blockDim.x + col;    
-        out[ outIdx ] = numColumns; 
-    }                            
+    /*else {
+        const int outIdx = row * numColumns + col;    
+        out[ outIdx ] = -1;//numColumns; 
+    }*/                            
 }
 
 // copy subregion of device memory to host
@@ -116,9 +116,6 @@ cudaError_t memcpy_2d_device_to_host( real_t* host_out, real_t* dev_in,
                                       int inRows, int inColumns,
                                       int inRowOffset, int inColOffset, 
                                       int numRows, int numColumns ) {                       
-    std::cout << "numRows: " << numRows << " numColumns: " << numColumns
-              << " inRowOffset: " << inRowOffset << " inColOffset: " << inColOffset
-              << " inRows: " << inRows << " inColumns: " << inColumns << std::endl;
     cudaError_t err;
     real_t* dev_out = 0;
     err = cudaMalloc( &dev_out, sizeof( real_t ) * numRows * numColumns );
