@@ -1,6 +1,4 @@
-// #CSCS CUDA Training 
-//
-// #Example 14 - C++
+// #Benchmark 1 - C++ stencil operations
 //
 // #Author Ugo Varetto
 //
@@ -24,11 +22,13 @@
 //        6) consume data (in this case print result)
 //        7) free memory
 //        
-// #Compilation: [default] nvcc -arch=sm_13 14_cpp.cu -o cpp
+// #Compilation: [default] nvcc -arch=sm_13 cpp.cu -o cpp
 //               [loops in c++ kernel ] -DGENERIC_OP
 //               [no bounds checking  ] -NO_BOUND_CHECK 
 //
 // #Execution: ./cpp
+//
+// @Note: IN PROGRESS
 //
 // #Note: experiment with different #define switches combinations
 //
@@ -88,7 +88,8 @@ __device__ size_t get_global_idx_2d( int rowOffset = 0, int colOffset = 0 ) {
 //------------------------------------------------------------------------------
 // return global 1d index from 2d index + offset; in this case the 2d index
 // is assumed to be always within the grid core space (whole grid - halo regions)
-__device__ size_t get_global_idx_2d_core_space( int gridWidth, int rowOffset = 0, int colOffset = 0 ) {
+__device__ size_t get_global_idx_2d_core_space( int gridWidth, int rowOffset = 0, 
+                                                int colOffset = 0 ) {
     const int row    = blockIdx.y * blockDim.y + threadIdx.y + rowOffset;
     const int column = blockIdx.x * blockDim.x + threadIdx.x + colOffset;
     return  row * gridWidth + column;
@@ -104,11 +105,7 @@ __global__ void memcpy_2d_kernel( const real_t* in, real_t* out,
         const int inIdx = ( row + rowOffset ) * inNumColumns + ( col + colOffset );
         const int outIdx = row * numColumns + col;    
         out[ outIdx ] = in[ inIdx ];
-    }
-    /*else {
-        const int outIdx = row * numColumns + col;    
-        out[ outIdx ] = -1;//numColumns; 
-    }*/                            
+    }                    
 }
 
 // copy subregion of device memory to host
@@ -380,6 +377,8 @@ int main( int , char**  ) {
     const int NUM_COLUMNS = 4096;
     const int NUM_ELEMENTS = NUM_ROWS * NUM_COLUMNS; 
     const int TOTAL_SIZE = sizeof( real_t ) * NUM_ELEMENTS; // total size in bytes
+    // we choose '1' to have the gpu grid match exactly the domain no matter what the
+    // grid size is; this allows to avoid bound checks in the GPU code
     const int THREADS_PER_BLOCK_HEIGHT = 1;//16; //number of gpu threads per block along height
     const int THREADS_PER_BLOCK_WIDTH  = 1;//16; //number of gpu threads per block along width
     

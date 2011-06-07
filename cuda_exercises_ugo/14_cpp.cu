@@ -214,7 +214,7 @@ void apply_3x3average_host( const real_t* vin, real_t* vout, int num_rows, int n
                 for( int j = -1; j <= 1; ++j ) {
                     out += 
                         vin[ get_global_idx_2d_host( row, col, i, j, num_rows, num_columns ) ] 
-                        * W; // ideally the loop nest should be in the base class
+                        * W;
                 }        
             }
             vout[ get_global_idx_2d_host( row, col, 0, 0, num_rows, num_columns ) ] = out;    
