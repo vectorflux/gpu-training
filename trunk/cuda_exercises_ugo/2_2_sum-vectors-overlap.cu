@@ -177,7 +177,7 @@ int main( int , char**  ) {
         cudaMemcpyAsync( vout + i + VECTOR_CHUNK_SIZE, dev_out1, CHUNK_BYTE_SIZE, cudaMemcpyDeviceToHost, stream1 );
     }
 #else
-    // computation (correct order, interleaved or not makes littel difference)
+    // computation (correct order, interleaved or not makes little difference)
     for( int i = 0; i < VECTOR_SIZE; i += NUMBER_OF_STREAMS * VECTOR_CHUNK_SIZE ) {
         cudaMemcpyAsync( dev_in00, v1 + i, CHUNK_BYTE_SIZE, cudaMemcpyHostToDevice, stream0 );
         cudaMemcpyAsync( dev_in01, v1 + i + VECTOR_CHUNK_SIZE, CHUNK_BYTE_SIZE, cudaMemcpyHostToDevice, stream1 );
