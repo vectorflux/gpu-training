@@ -69,13 +69,13 @@
 #include <algorithm>
 
 //sleep for the requested number of clocks
-__global__ void timed_kernel( clock_t* clocksElement, int clocks ) {
+__global__ void timed_kernel( clock_t* clocksArray, int kernelIdx, int clocks ) {
     const clock_t start = clock();
     clock_t elapsed;
     do {
         elapsed = clock() - start;
     } while( elapsed < clocks );
-    *clocksElement = elapsed;
+    clocksArray[ kernelIdx ] = elapsed;
 }
 
 //parallel reduction: assume only one thread block used for computation;
@@ -146,7 +146,7 @@ int main( int , char**  ) {
     clock_t* clock_sum = 0; // sum of kernel execution times
     //we need host-allocated page locked memory because later-on an async memcpy operation is
     //is used; async operations *always* require page-locked memory
-    cudaMallocHost( &clock_sum, CLOCKS_BYTE_SIZE );
+    cudaMallocHost( &clocks, CLOCKS_BYTE_SIZE );
     cudaMallocHost( &clock_sum, sizeof( clock_t ) );
     clock_t* dev_clocks = 0;
     cudaMalloc( &dev_clocks, CLOCKS_BYTE_SIZE );
@@ -159,6 +159,7 @@ int main( int , char**  ) {
     for( int k = 0; k != NUM_KERNELS; ++k ) {
         const int CLOCK_FREQ_kHz = prop.clockRate; // 1000 * f Hz --> CLOCKS = Tms * prop.clockRate
         timed_kernel<<< 1, 1, 0, kernel_streams[ k ] >>>( dev_clocks,
+                                                          k,
                                                           KERNEL_EXECUTION_TIME_ms * CLOCK_FREQ_kHz );
         cudaEventRecord( kernel_events[ k ], kernel_streams[ k ] );
         // make sure all kernel events are recorded before summing up execution times
