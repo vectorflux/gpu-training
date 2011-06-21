@@ -6,7 +6,7 @@
 //
 // #Author Ugo Varetto
 //
-// #Goal: compute the sum of two vectors overlapping communication and computation
+// #Goal: execute kernels on the GPU in parallel
 //
 // #Rationale: using streams it is possible to subdivide computation and memory transfer
 //             operations in separate execution queues which can be executed in parallel;
@@ -70,8 +70,8 @@
 
 //sleep for the requested number of clocks
 __global__ void timed_kernel( clock_t* clocksArray, int kernelIdx, int clocks ) {
+    clock_t elapsed = 0;
     const clock_t start = clock();
-    clock_t elapsed;
     do {
         elapsed = clock() - start;
     } while( elapsed < clocks );
@@ -81,22 +81,21 @@ __global__ void timed_kernel( clock_t* clocksArray, int kernelIdx, int clocks ) 
 //parallel reduction: assume only one thread block used for computation;
 //using more than a single block requires inter-block sychronization, see example 4.1/4.2 
 __global__ void sum_clocks( clock_t* result, const clock_t* clocks, int numElements ) {
-    const int CACHE_SIZE = 16; // equal to number of threads in thread block
+    const int CACHE_SIZE = 32; // equal to number of threads in thread block
     __shared__ clock_t cache[ CACHE_SIZE ];
     cache[ threadIdx.x ] = 0;
-    for( int i = 0; i < numElements; i += CACHE_SIZE ) {
-        cache[ threadIdx.x ] += clocks[ threadIdx.x + i ];   
+    if( threadIdx.x < numElements ) {
+        for( int i = 0; i < numElements; i += CACHE_SIZE ) {
+            cache[ threadIdx.x ] += clocks[ threadIdx.x + i ];   
+        }
     }
     __syncthreads();
     for( int i = CACHE_SIZE / 2; i > 0; i /= 2 ) {
         if( threadIdx.x < i ) cache[ threadIdx.x ] += cache[ threadIdx.x + i ];
         __syncthreads();
     }        
-    *result = cache[ 0 ];
+    result[ 0 ] = cache[ 0 ];
 }
-
-
-
 
 //------------------------------------------------------------------------------
 int main( int , char**  ) {
@@ -111,7 +110,7 @@ int main( int , char**  ) {
                   << "kernels will be serialized" << std::endl;
     }    
 
-    const int NUM_KERNELS = 4;
+    const int NUM_KERNELS = 16;
     const int NUM_CLOCKS  = NUM_KERNELS;
     const size_t CLOCKS_BYTE_SIZE = NUM_CLOCKS * sizeof( clock_t );
     const int KERNEL_EXECUTION_TIME_ms = 250; //ms
@@ -137,7 +136,7 @@ int main( int , char**  ) {
     
     //create kernel streams
     for( std::vector< cudaStream_t >::iterator i =  kernel_streams.begin();
-         i != kernel_streams.end(); ++i ) {
+        i != kernel_streams.end(); ++i ) {
         cudaStreamCreate( &(*i) );           
     }
 
@@ -146,18 +145,17 @@ int main( int , char**  ) {
     clock_t* clock_sum = 0; // sum of kernel execution times
     //we need host-allocated page locked memory because later-on an async memcpy operation is
     //is used; async operations *always* require page-locked memory
-    cudaMallocHost( &clocks, CLOCKS_BYTE_SIZE );
-    cudaMallocHost( &clock_sum, sizeof( clock_t ) );
+    cudaHostAlloc( &clocks, CLOCKS_BYTE_SIZE, cudaHostAllocPortable );
+    cudaHostAlloc( &clock_sum, sizeof( clock_t ), cudaHostAllocPortable );
     clock_t* dev_clocks = 0;
     cudaMalloc( &dev_clocks, CLOCKS_BYTE_SIZE );
     clock_t* dev_clock_sum = 0;
     cudaMalloc( &dev_clock_sum, sizeof( clock_t ) );
 
-
+    const int CLOCK_FREQ_kHz = prop.clockRate; // 1000 * f Hz --> CLOCKS = Tms * prop.clockRate
     // BEGIN of async operations
     cudaEventRecord( start, 0 );
     for( int k = 0; k != NUM_KERNELS; ++k ) {
-        const int CLOCK_FREQ_kHz = prop.clockRate; // 1000 * f Hz --> CLOCKS = Tms * prop.clockRate
         timed_kernel<<< 1, 1, 0, kernel_streams[ k ] >>>( dev_clocks,
                                                           k,
                                                           KERNEL_EXECUTION_TIME_ms * CLOCK_FREQ_kHz );
@@ -165,12 +163,11 @@ int main( int , char**  ) {
         // make sure all kernel events are recorded before summing up execution times
         cudaStreamWaitEvent( time_compute_stream, kernel_events[ k ], 0 /*must be zero*/ );
     }
-
-   
+  
     const int NUM_BLOCKS = 1;
-    const int NUM_THREADS_PER_BLOCK = 16; // must match shared memory size
+    const int NUM_THREADS_PER_BLOCK = 32; // must match shared memory size
     const size_t SHARED_MEMORY_SIZE = 0;     
- 
+    
     sum_clocks<<< NUM_BLOCKS, NUM_THREADS_PER_BLOCK,
                   SHARED_MEMORY_SIZE, time_compute_stream >>>( dev_clock_sum, dev_clocks, NUM_KERNELS );
     cudaMemcpyAsync( clock_sum, dev_clock_sum, sizeof( clock_t ), cudaMemcpyDeviceToHost, time_compute_stream );
@@ -178,7 +175,6 @@ int main( int , char**  ) {
     //record event, not associated with any stream and therefore recorded
     //after *all* stream events are recorded
     cudaEventRecord( stop, 0 );
-
     // END of async operations
     
     //sync everything
@@ -187,12 +183,13 @@ int main( int , char**  ) {
     //and therefore all events in the context must have been recorded before the stop event is recorded
     cudaEventSynchronize( stop );
     cudaEventElapsedTime( &elapsed_time, start, stop );    
-   
+ 
     //output information
     std::cout << NUM_KERNELS << " kernels" << std::endl;
     std::cout << "Requested kernel execution time: " << KERNEL_EXECUTION_TIME_ms << " ms" << std::endl;
     std::cout << "Actual computed kernel execution time: " 
-              << std::max_element( clocks, clocks + NUM_KERNELS ) << " ms" << std::endl;  
+              << ( *std::max_element( clocks, clocks + NUM_KERNELS ) / CLOCK_FREQ_kHz ) << " ms" << std::endl;  
+    std::cout << "Sum of kernel execution times: " << *clock_sum / CLOCK_FREQ_kHz << " ms" << std::endl;  
     std::cout << "Total execution time: " << elapsed_time << " ms" << std::endl;
     
     //free resources
