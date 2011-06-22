@@ -1,80 +1,68 @@
-// !!!! WORK IN PROGRESS !!!
-
 // #CSCS CUDA Training 
 //
-// #Example 15 - concurrent kernels
+// #Example 15 - concurrent kernels, requires Fermi cards for parallel execution
 //
 // #Author Ugo Varetto
 //
-// #Goal: execute kernels on the GPU in parallel
+// #Goal: execute kernels on the GPU in parallel, check serialized versus parallel performance
+//    
+// #Rationale: Fermi-based cards allow kernels to run in parallel
 //
-// #Rationale: using streams it is possible to subdivide computation and memory transfer
-//             operations in separate execution queues which can be executed in parallel;
-//             specifically it is possible to execute kernel computation while concurrently
-//             transferring data between host and device
-//
-// #Solution: subdivide domain into chunks, iterate over the array and at each
-//            iteration issue asynchronous calls to memcpy and kernels
-//            (always asynchronous) in separate streams. Note that
-//            on the GPU operations are split into one queue per operation type
-//            specifically: all copy operations from different streams go into the same
-//            queue in the same order as specified by client code, likewise all
-//            kernel invocations go into the same 'kernel invocation queue'.
-//            Now: if any copy operation (regardless of the associated stream) depends
-//            on e.g. a kernel execution then all subsequent copy operations in all streams must wait
-//            for the dependent copy operation to complete before they are executed; this means
-//            that client code is responsible for properly queueing operations to avoid conflicts. 
-//
+// #Solution: 
+//           . run each kernel in a separate stream
+//           . record a global start and stop event before and after execution of the kernel
+//             launch loop
+//           . sync stop event
+//           . [optional] have each kernel store its timing information into an array
+//             and use a separate kernel to report timing information after all other
+//             kernel have been executed - requires stream to wait for the recording
+//             of events in the other streams
+// 
 // #Code: flow:
-//        1) compute launch grid configuration
-//        2) allocate data on host(cpu) and device(gpu)
-//        3) copy data from host ro device
-//        4) create streams
-//        5) iterate over array elements performing memory transfers and
-//           kernel invocation: at each iteration the number of elements
-//           being processed by separate streams is VECTOR_CHUNK_SIZE x NUMBER_OF_STREAMS
-//        6) synchronize streams to wait for end of execution 
-//        7) consume data (in this case print result)
-//        8) free memory, streams and events (used to time operations)
+//        1) create one stream per kernel + one stream for the time reporting kernel
+//        2) create one sync event per kernel: the time reporting kernel will wait
+//           for all the event to be recoreded before it gets executed
+//        3) create start/stop events in the global scope i.e. not associated with any stream 
+//        4) allocate data on host(cpu) and device(gpu), async memory transfers do require
+//           page-locked memory
+//        5) record start event
+//        6) launch asynchronously kernels in a loop; support both independent(parallel)
+//           and dependent(serial) execution:
+//           - parallel: have the time reporting stream wait for each kernel to finish execution,
+//            this is achieved by recording an event after each kernel launch and making 
+//             the stream wait on the event through a call to cudaStreamWaitEvent
+//           - serial: same as above but always use the same(first) stream 
+//        7) launch asynchronously the time reporting kernel
+//        8) issue ansynchronous mem-copy operations
+//        9) sync everything, synchronizing with a global(i.e. not associated with any stream)
+//           event is enough because it requires all the pending operations in all streams
+//           to be completed
+//       10) output information
+//       11) free memory, streams and events 
 //        
-// #Compilation: [optimized] nvcc -arch=sm_13 2_2_sum-vectors-overlap.cu -o sum_vectors-overlap
-//               [wrong ordering, no overlap] nvcc -DSTREAM_NO_OVERLAP -arch=sm_13 2_2_sum-vectors-overlap.cu -o sum_vectors-overlap
+// #Compilation: [concurrent execution(on Fermi)] nvcc 15_concurrent-kernels.cu -o concurrent-kernels
+//               [serial execution] nvcc 15_concurrent-kernels.cu -o concurrent-kernels -DFORCE_SERIALIZED
 //                 
+// #Execution: ./concurrent-kernels
 //
-// #Execution: ./sum-vectors-overlap
-//             note that you might experience some hysteresis! on Win 7 64bit, CUDA RC2 at each compilation
-//             it takes a few runs before the new ordering scheme becomes active!!! 
+// #Note: 2.x architecture required for parallel kernel execution
 //
+// #Note: the maximum number of concurrent kernels on 2.0 architecture with CUDA SDK 4.0
+//        seems to be 16
+//              
 // #Note: page locked memory required for async/stream operations
-//
-// #Note: kernel invocations ( foo<<<...>>>(...) ) are *always* asynchronous and a call to 
-//        cudaThreadSynchronize() is required to wait for the end of kernel execution from
-//        a host thread; in case of synchronous copy operations like cudaMemcpy(...,cudaDeviceToHost)
-//        kernel execution is guaranteed to be terminated before data are copied   
-//
-// #Note: the code is C++ also because the default compilation mode for CUDA is C++, all functions
-//        are named with C++ convention and the syntax is checked by default against C++ grammar rules 
-//
-// #Note: -arch=sm_13 allows the code to run on every card with hw architecture GT200 (gtx 2xx) or better
-//
-// #Note: -arch=sm_13 is the lowest architecture version that supports double precision
-//
-// #Note: the example can be extended to read configuration data and array size from the command line and
-//        investigating the optimal configuration for number of streams and chunk size
-
 
 //#include <cuda_runtime.h> // automatically added by nvcc
 #include <vector>
 #include <iostream>
 #include <algorithm>
+#include <ctime>
 
 //sleep for the requested number of clocks
-__global__ void timed_kernel( clock_t* clocksArray, int kernelIdx, int clocks ) {
-    clock_t elapsed = 0;
+__global__ void timed_kernel( clock_t* clocksArray, int kernelIdx, int clockTicks ) {
     const clock_t start = clock();
-    do {
-        elapsed = clock() - start;
-    } while( elapsed < clocks );
+    clock_t elapsed = 0;
+    while( elapsed < clockTicks ) elapsed = clock() - start; 
     clocksArray[ kernelIdx ] = elapsed;
 }
 
@@ -110,10 +98,11 @@ int main( int , char**  ) {
                   << "kernels will be serialized" << std::endl;
     }    
 
-    const int NUM_KERNELS = 16;
+    // change this value to find the maximum number of concurrent kernels supported
+    const int NUM_KERNELS = 8;
     const int NUM_CLOCKS  = NUM_KERNELS;
     const size_t CLOCKS_BYTE_SIZE = NUM_CLOCKS * sizeof( clock_t );
-    const int KERNEL_EXECUTION_TIME_ms = 250; //ms
+    const int KERNEL_EXECUTION_TIME_ms = 20; 
     float elapsed_time = 0.f;   
     cudaEvent_t start, stop;
     std::vector< cudaEvent_t >  kernel_events( NUM_KERNELS );
@@ -131,7 +120,7 @@ int main( int , char**  ) {
         
     }
 
-    //create sync stream: sync stream wait for all kernel events to be recorded 
+    //create stream for time reporting kernel: stream must wait for all kernel events to be recorded 
     cudaStreamCreate( &time_compute_stream );
     
     //create kernel streams
@@ -155,15 +144,24 @@ int main( int , char**  ) {
     const int CLOCK_FREQ_kHz = prop.clockRate; // 1000 * f Hz --> CLOCKS = Tms * prop.clockRate
     // BEGIN of async operations
     cudaEventRecord( start, 0 );
+    clock_t cpu_start = clock();
     for( int k = 0; k != NUM_KERNELS; ++k ) {
+#ifdef FORCE_SERIALIZED
+        timed_kernel<<< 1, 1, 0, kernel_streams[ 0 ] >>>( dev_clocks,
+                                                          k,
+                                                          KERNEL_EXECUTION_TIME_ms * CLOCK_FREQ_kHz );
+        if( k == NUM_KERNELS - 1 ) { // record event after all kernel have been executed
+             cudaEventRecord( kernel_events[ 0 ], kernel_streams[ 0 ] );
+             cudaStreamWaitEvent( time_compute_stream, kernel_events[ 0 ], 0 /*must be zero*/ );
+        }
+#else
         timed_kernel<<< 1, 1, 0, kernel_streams[ k ] >>>( dev_clocks,
                                                           k,
                                                           KERNEL_EXECUTION_TIME_ms * CLOCK_FREQ_kHz );
         cudaEventRecord( kernel_events[ k ], kernel_streams[ k ] );
-        // make sure all kernel events are recorded before summing up execution times
         cudaStreamWaitEvent( time_compute_stream, kernel_events[ k ], 0 /*must be zero*/ );
+#endif               
     }
-  
     const int NUM_BLOCKS = 1;
     const int NUM_THREADS_PER_BLOCK = 32; // must match shared memory size
     const size_t SHARED_MEMORY_SIZE = 0;     
@@ -172,6 +170,7 @@ int main( int , char**  ) {
                   SHARED_MEMORY_SIZE, time_compute_stream >>>( dev_clock_sum, dev_clocks, NUM_KERNELS );
     cudaMemcpyAsync( clock_sum, dev_clock_sum, sizeof( clock_t ), cudaMemcpyDeviceToHost, time_compute_stream );
     cudaMemcpyAsync( clocks, dev_clocks, CLOCKS_BYTE_SIZE, cudaMemcpyDeviceToHost, time_compute_stream );
+    
     //record event, not associated with any stream and therefore recorded
     //after *all* stream events are recorded
     cudaEventRecord( stop, 0 );
@@ -182,16 +181,18 @@ int main( int , char**  ) {
     //the stop event is associated with the global context (the '0' in the cudaEventRegister call)
     //and therefore all events in the context must have been recorded before the stop event is recorded
     cudaEventSynchronize( stop );
+    const double cpu_elapsed_time = clock() - cpu_start;
     cudaEventElapsedTime( &elapsed_time, start, stop );    
  
     //output information
-    std::cout << NUM_KERNELS << " kernels" << std::endl;
-    std::cout << "Requested kernel execution time: " << KERNEL_EXECUTION_TIME_ms << " ms" << std::endl;
-    std::cout << "Actual computed kernel execution time: " 
-              << ( *std::max_element( clocks, clocks + NUM_KERNELS ) / CLOCK_FREQ_kHz ) << " ms" << std::endl;  
-    std::cout << "Sum of kernel execution times: " << *clock_sum / CLOCK_FREQ_kHz << " ms" << std::endl;  
-    std::cout << "Total execution time: " << elapsed_time << " ms" << std::endl;
-    
+    std::cout << "Clock:                                 " << double( CLOCK_FREQ_kHz ) * 1E-6 << " GHz" << std::endl; 
+    std::cout << "Number of kernels:                     " << NUM_KERNELS << std::endl;
+    std::cout << "Requested kernel execution time:       " << KERNEL_EXECUTION_TIME_ms << " ms" << std::endl;
+    std::cout << "Computed kernel execution time:        " 
+              << double( *std::max_element( clocks, clocks + NUM_KERNELS ) ) / CLOCK_FREQ_kHz << " ms" << std::endl;  
+    std::cout << "Sum of kernel execution times:         " << double( *clock_sum ) / CLOCK_FREQ_kHz << " ms" << std::endl;  
+    std::cout << "Total measured execution time:         " << elapsed_time << " ms" << std::endl;
+    std::cout << "CPU elapsed time:                      " << 1000. * cpu_elapsed_time / CLOCKS_PER_SEC << " ms" << std::endl;
     //free resources
     for( std::vector< cudaEvent_t >::iterator i =  kernel_events.begin();
          i != kernel_events.end(); ++i ) {
@@ -212,7 +213,7 @@ int main( int , char**  ) {
     cudaFree( dev_clocks );
     cudaFree( dev_clock_sum );
 
-    //OPTIONAL, must be called in order for profiling and tracing tools
+    //OPTIONAL, apparently it must be called in order for profiling and tracing tools
     //to show complete traces
     cudaDeviceReset(); 
 
