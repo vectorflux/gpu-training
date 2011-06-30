@@ -208,7 +208,7 @@ int main( int , char**  ) {
               << elapsed_half_no_sharing / std::max( e1, e2 ) << std::endl;
     std::cout << "Full domain: exec. time without sharing / exec. time with sharing: " 
               << elapsed_full_no_sharing / std::max( e1, e2 ) << std::endl;
-    std::cout << "Gain: " << std::ceil(100 * ( elapsed_full_no_sharing / std::max( e1, e2 ) - 1 ) ) << '%' << std::endl;
+    std::cout << "Gain: " << std::ceil( 100 * ( elapsed_full_no_sharing / std::max( e1, e2 ) - 1 ) ) << '%' << std::endl;
     
     // disable peer access and re-run first kernel to verify that results are consistent
     cudaSetDevice( 1 );
