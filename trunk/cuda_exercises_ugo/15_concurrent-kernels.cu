@@ -102,7 +102,7 @@ int main( int , char**  ) {
     const int NUM_KERNELS = 8;
     const int NUM_CLOCKS  = NUM_KERNELS;
     const size_t CLOCKS_BYTE_SIZE = NUM_CLOCKS * sizeof( clock_t );
-    const int KERNEL_EXECUTION_TIME_ms = 20; 
+    const int KERNEL_EXECUTION_TIME_ms = 50; 
     float elapsed_time = 0.f;   
     cudaEvent_t start, stop;
     std::vector< cudaEvent_t >  kernel_events( NUM_KERNELS );
@@ -141,15 +141,18 @@ int main( int , char**  ) {
     clock_t* dev_clock_sum = 0;
     cudaMalloc( &dev_clock_sum, sizeof( clock_t ) );
 
-    const int CLOCK_FREQ_kHz = prop.clockRate; // 1000 * f Hz --> CLOCKS = Tms * prop.clockRate
+    const int CLOCK_FREQ_kHz = prop.clockRate; 
     // BEGIN of async operations
     cudaEventRecord( start, 0 );
     clock_t cpu_start = clock();
     for( int k = 0; k != NUM_KERNELS; ++k ) {
 #ifdef FORCE_SERIALIZED
+        // clock ticks = freq [s^-1] x time [s]  =
+        //   10 ^ 3 x freq  x 10 ^ -3 time       =
+        //   CLOCK_FREQ_kHz x KERNEL_EXECUTION_TIME_ms
         timed_kernel<<< 1, 1, 0, kernel_streams[ 0 ] >>>( dev_clocks,
                                                           k,
-                                                          KERNEL_EXECUTION_TIME_ms * CLOCK_FREQ_kHz );
+                                                          CLOCK_FREQ_kHz * KERNEL_EXECUTION_TIME_ms );
         if( k == NUM_KERNELS - 1 ) { // record event after all kernel have been executed
              cudaEventRecord( kernel_events[ 0 ], kernel_streams[ 0 ] );
              cudaStreamWaitEvent( time_compute_stream, kernel_events[ 0 ], 0 /*must be zero*/ );
