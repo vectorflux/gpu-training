@@ -16,7 +16,7 @@ inline std::string format_mpi_err_msg( int code ) {
     int length_of_error_string = 0; 
     char error_string[ MPI_MAX_ERROR_STRING ]; 
     MPI_Error_string( code, error_string, &length_of_error_string );
-    std::stringstream err;
+    std::ostringstream err;
     err << "Error " << code << ":\n  error message: ";
     err << error_string;
     err << "\n  error class message: ";

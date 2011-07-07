@@ -10,9 +10,10 @@ int main( int argc, char** argv ) {
 
     int numtasks = 0;
     int task     = 0;
-    MPI_Init( &argc, &argv );
-    MPI_Comm_size( MPI_COMM_WORLD, &numtasks );
-    MPI_Comm_rank( MPI_COMM_WORLD, &task  );
+    MPI_( MPI_Errhandler_set( MPI_COMM_WORLD, MPI_ERRORS_RETURN ) );
+    MPI_( MPI_Init( &argc, &argv ) );
+    MPI_( MPI_Comm_size( MPI_COMM_WORLD, &numtasks ) );
+    MPI_( MPI_Comm_rank( MPI_COMM_WORLD, &task  ) );
     int dest   = 0;
     int source = 0;
     const int tag0to1 = 0x01;
@@ -38,7 +39,7 @@ int main( int argc, char** argv ) {
             ++k;
             std::cout << "\r\t" << k; std::cout.flush();
             sleep( 1 );
-            MPI_( MPI_Send( &k, 1, MPI_INT, dest,   tag1to0, MPI_COMM_WORLD ) );
+            MPI_( MPI_Send( &k, 1, MPI_INT, dest, tag1to0, MPI_COMM_WORLD ) );
          }
     }
   
