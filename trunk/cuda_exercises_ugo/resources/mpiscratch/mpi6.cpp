@@ -46,9 +46,11 @@ int main( int argc, char** argv ) {
     const int ELEMENTS_SENT_PER_TASK     = 3;
     const int ELEMENTS_RECEIVED_PER_TASK = 3;
     const int TOTAL_ELEMENTS_TO_GATHER   = numtasks * ELEMENTS_RECEIVED_PER_TASK;
+    // show how to deal with const pointers
+    const std::vector< int > cneighbor( neighbor); 
     if( task == root ) {
         std::vector< int > neighbors( TOTAL_ELEMENTS_TO_GATHER, -2 );
-        MPI_( MPI_Gather( &neighbor[ 0 ], ELEMENTS_SENT_PER_TASK, MPI_INT, &neighbors[ 0 ],
+        MPI_( MPI_Gather( const_cast< int* >( &cneighbor[ 0 ] ), ELEMENTS_SENT_PER_TASK, MPI_INT, &neighbors[ 0 ],
               ELEMENTS_RECEIVED_PER_TASK, MPI_INT, root, MPI_COMM_WORLD ) );
         for( std::vector< int >::const_iterator i = neighbors.begin();
              i < neighbors.end(); i += ELEMENTS_RECEIVED_PER_TASK ) {
@@ -56,7 +58,7 @@ int main( int argc, char** argv ) {
         }
         std::cout << std::endl;
     } else {
-        MPI_( MPI_Gather( &neighbor[ 0 ], ELEMENTS_SENT_PER_TASK, MPI_INT, 0, 0, 0, root, MPI_COMM_WORLD ) );
+        MPI_( MPI_Gather( const_cast< int* >( &cneighbor[ 0 ] ), ELEMENTS_SENT_PER_TASK, MPI_INT, 0, 0, 0, root, MPI_COMM_WORLD ) );
     } 
 
     MPI_( MPI_Finalize() );
