@@ -53,6 +53,8 @@ int main( int argc, char** argv ) {
     const int source = 0;
     MPI_( MPI_Recv( &b[ 0 ], NELEMENTS, MPI_FLOAT, source, tag, MPI_COMM_WORLD, &stat ) );
    
+    // reason for using a string stream: with concurrent output it is better to have
+    // each MPI task output a single string instead to avoid possible interleaves 
     std::ostringstream os;
     os << &nodeid[ 0 ] << " - rank " << task << ":\t";
     std::copy( b.begin(), b.end(), std::ostream_iterator< float >( os, "," ) );
