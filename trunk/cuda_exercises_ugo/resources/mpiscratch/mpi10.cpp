@@ -33,6 +33,11 @@ int main( int argc, char** argv ) {
     std::vector< int > neighbors( 4, -1 );
     enum { UP = 0, DOWN, LEFT, RIGHT };
     // compute the shifted source and destination ranks, given a shift direction and amount
+    //MPI_Cart_shift is uses to find two "nearby" neighbors of the calling process
+    //along a specified direction of an N-dimensional grid
+    //The direction and offset are specified as a signed integer
+    //If the sign of the displacement is positive the "source" rank is lower
+    //than the destination rank; if it's negative the opposite is true 
     MPI_( MPI_Cart_shift( cartcomm, 0, 1, &neighbors[ UP ],   &neighbors[ DOWN ] ) );
     MPI_( MPI_Cart_shift( cartcomm, 1, 1, &neighbors[ LEFT ], &neighbors[ RIGHT ] ) );
     int sendbuf = task;
@@ -58,5 +63,10 @@ int main( int argc, char** argv ) {
     
     return 0;
 }
+
+
+
+
+
 
 
