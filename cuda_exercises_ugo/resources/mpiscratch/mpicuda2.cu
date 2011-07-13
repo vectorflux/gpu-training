@@ -20,8 +20,6 @@
 typedef float real_t;
 #define MPI_REAL_T_ MPI_FLOAT
 
-//static const real_t PI = 3.14159265358979323846;
-
 //------------------------------------------------------------------------------
 #ifdef GPU
 const size_t BLOCK_SIZE = 16;
@@ -73,9 +71,6 @@ int main( int argc, char** argv ) {
     std::vector< real_t > v1( ARRAY_SIZE / numtasks, 0. );
     std::vector< real_t > v2( ARRAY_SIZE / numtasks, 0. );
     for( int i = 0; i != PER_MPI_TASK_ARRAY_SIZE; ++i ) {
-        //const real_t arg = i * 2 * PI / PER_MPI_TASK_ARRAY_SIZE + task * 2 * PI / numtasks;
-        //v1[ i ] = std::sin( arg );
-        //v2[ i ] = std::cos( arg );
         v1[ i ] = 1;
         v2[ i ] = 1;  
     }
