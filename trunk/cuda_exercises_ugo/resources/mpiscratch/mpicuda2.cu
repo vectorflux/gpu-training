@@ -68,7 +68,7 @@ int main( int argc, char** argv ) {
         MPI_( MPI_Abort( MPI_COMM_WORLD, 1 ) );
         return 1;
     }
-    // PER TASK DATA INIT - in the real world this is the plae where data are read from file
+    // PER TASK DATA INIT - in the real world this is the place where data are read from file
     // through the MPI_File_ functions or, less likely received from the root process
     std::vector< real_t > v1( ARRAY_SIZE / numtasks, 0. );
     std::vector< real_t > v2( ARRAY_SIZE / numtasks, 0. );
