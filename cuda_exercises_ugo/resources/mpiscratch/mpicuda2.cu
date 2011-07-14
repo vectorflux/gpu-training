@@ -10,6 +10,8 @@
 #include <cmath>
 #include <algorithm>
 #include <sstream>
+#include <string>
+#include <set>
 
 // compilation with mvapich2:
 // nvcc -L/apps/eiger/mvapich2/1.6/mvapich2-gnu/lib -I/apps/eiger/mvapich2/1.6/mvapich2-gnu/include \
@@ -30,7 +32,7 @@ typedef float real_t;
 
 //------------------------------------------------------------------------------
 #ifdef GPU
-const int BLOCK_SIZE = 128;
+const int BLOCK_SIZE = 256;
 
 __global__ void dot_product_kernel( const real_t* v1, const real_t* v2, int N, real_t* out ) {
     __shared__ real_t cache[ BLOCK_SIZE ];
@@ -67,34 +69,41 @@ int main( int argc, char** argv ) {
     MPI_( MPI_Get_processor_name( &nodeid[ 0 ], &len ) );
     
     // RETRIEVE TOTAL NUMBER OF NODES USED, is there an easier way ?
-    MPI_( MPI_Isend( &nodeid[ 0 ]...;
+    // required to have each GPU assigned to the same number of processes
+    // on each node
+    const int SEND_NODE_TAG = 0x01;
+    //const int SEND_NUM_NODES = 0x10;
+    MPI_Request req;
+    MPI_( MPI_Isend( &nodeid[ 0 ], MPI_MAX_PROCESSOR_NAME, MPI_CHAR, 0, SEND_NODE_TAG,
+                     MPI_COMM_WORLD, &req ) );     
+    int node_count = -1;
     if( task == 0 ) {
-        typedef std::map< std::string, int > NodeCount;
+        typedef std::set< std::string > NodeCount;
         NodeCount ncount;
         std::vector< char > n( MPI_MAX_PROCESSOR_NAME, '\0' );
+        MPI_Status s;
         for( int r = 0; r != numtasks; ++r ) {
-            MPI_( MPI_Recv( &n[ 0 ],...;
-            ++ncount[ &n[ 0 ] ];    
+            MPI_( MPI_Recv( &n[ 0 ], MPI_MAX_PROCESSOR_NAME, MPI_CHAR, r, SEND_NODE_TAG,
+                            MPI_COMM_WORLD, &s ) );   
+            ncount.insert( &n[ 0 ] );    
         }
-        for( int r = 0; r != numtasks; ++r ) {
-            MPI_( MPI_Isend( &nodecount...;
-        }
+        node_count = int( ncount.size() );
+        std::cout << "Number of nodes: " << node_count << std::endl; 
     }
-    int node_count = -1; 
-    MPI_( MPI_Recv( &node_count...;
-    const int tasks_per_node = numtasks / node_count;
+   
+    MPI_( MPI_Bcast( &node_count, 1, MPI_INT, 0, MPI_COMM_WORLD ) );
 
-
+    // PER TASK DATA INIT - in the real world this is the place where data are read from file
+    // through the MPI_File_ functions or, less likely received from the root process
     const int ARRAY_SIZE = 1024 * 1024 * 256; // 256 Mi floats x 2 == 2 GiB total storage
     // @WARNING: ARRAY_SIZE must be evenly divisible by the number of MPI processes
     const int PER_MPI_TASK_ARRAY_SIZE = ARRAY_SIZE / numtasks;
     if( ARRAY_SIZE % numtasks != 0  && task == 0 ) {
-        std::cerr << ARRAY_SIZE << " must be evenly divisable by the number of mpi processes" << std::endl;
+        std::cerr << ARRAY_SIZE << " must be evenly divisible by the number of mpi processes" << std::endl;
         MPI_( MPI_Abort( MPI_COMM_WORLD, 1 ) );
         return 1;
     }
-    // PER TASK DATA INIT - in the real world this is the place where data are read from file
-    // through the MPI_File_ functions or, less likely received from the root process
+    
     std::vector< real_t > v1( ARRAY_SIZE / numtasks, 0. );
     std::vector< real_t > v2( ARRAY_SIZE / numtasks, 0. );
     for( int i = 0; i != PER_MPI_TASK_ARRAY_SIZE; ++i ) {
@@ -117,7 +126,7 @@ int main( int argc, char** argv ) {
         MPI_( MPI_Abort( MPI_COMM_WORLD, 1 ) );
         return 1;
     }
-    const int device =   ( task / tasks_per_node ) % device_count;
+    const int device =   ( task / node_count ) % device_count;
     std::ostringstream os;
     os << &nodeid[ 0 ] << " - rank: " << task << "\tGPU: " << device << '\n';
     std::cout << os.str(); os.flush();     
