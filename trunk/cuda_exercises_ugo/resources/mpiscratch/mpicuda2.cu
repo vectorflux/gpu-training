@@ -12,6 +12,14 @@
 #include <sstream>
 #include <string>
 #include <set>
+#include <numeric>
+
+// switches:
+// #GPU : enable GPU computation
+// #NO_LOG: do not printout log messages
+// #REDUCE_CPU: perform final per-task reduction step on the CPU
+// #DOUBLE: double precision
+
 
 // compilation with mvapich2:
 // nvcc -L/apps/eiger/mvapich2/1.6/mvapich2-gnu/lib -I/apps/eiger/mvapich2/1.6/mvapich2-gnu/include \
@@ -27,13 +35,19 @@
 //       CUDA fails to allocate memory exaclty for one task on each node;
 //       Everything works fine with the same data with 8 tasks (4 per node, 2 per GPU ).
 
+#ifndef DOUBLE_
+// with CUDA 4.0 atomics are available for single precision only!!!
 typedef float real_t;
 #define MPI_REAL_T_ MPI_FLOAT
+#else
+typedef double real_t;
+#define MPI_REAL_T_ MPI_DOUBLE
+#endif
 
 //------------------------------------------------------------------------------
 #ifdef GPU
 const int BLOCK_SIZE = 256;
-
+#ifndef DOUBLE_ //atomics are available for single precision only!!!
 __global__ void dot_product_kernel( const real_t* v1, const real_t* v2, int N, real_t* out ) {
     __shared__ real_t cache[ BLOCK_SIZE ];
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -50,6 +64,25 @@ __global__ void dot_product_kernel( const real_t* v1, const real_t* v2, int N, r
         i /= 2; //not sure bitwise operations are actually faster
     }
     if( threadIdx.x == 0 ) atomicAdd( out, cache[ 0 ] );   
+}
+#endif
+
+__global__ void partial_dot_product_kernel( const real_t* v1, const real_t* v2, int N, real_t* out ) {
+    __shared__ real_t cache[ BLOCK_SIZE ];
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if( i >= N ) return;
+    cache[ threadIdx.x ] = 0.f;
+    while( i < N ) {
+        cache[ threadIdx.x ] += v1[ i ] * v2[ i ];
+        i += gridDim.x * blockDim.x;
+    }    
+    i = BLOCK_SIZE / 2;
+    while( i > 0 ) {
+        if( threadIdx.x < i ) cache[ threadIdx.x ] += cache[ threadIdx.x + i ];
+        __syncthreads();
+        i /= 2; //not sure bitwise operations are actually faster
+    }
+    if( threadIdx.x == 0 ) out[ blockIdx.x ] = cache[ 0 ];
 }
 #endif
 
@@ -88,14 +121,26 @@ int main( int argc, char** argv ) {
             ncount.insert( &n[ 0 ] );    
         }
         node_count = int( ncount.size() );
-        std::cout << "Number of nodes: " << node_count << std::endl; 
+#ifndef NO_LOG
+        std::cout << "Number of nodes: " << node_count << std::endl;
+#endif 
     }
-   
+    
+    // SEND INFORMATION USED FOR GPU <-> RANK MAPPING TO EACH PROCESS
+    // Option 1: use scatter, useful only to send per-process specific information like e.g
+    //           the GPU to use. It is in general a more robust method to have the root process
+    //           compute the rank -> gpu map
+    //std::vector< int > sendbuf( numtasks, node_count );
+    // MPI Scatter parameters: address of send buffer,
+    //                           per-receiving process receive buffer size,...
+    // send buffer size = num tasks x per-reeiveing-process buffer size
+    //MPI_( MPI_Scatter( &sendbuf[ 0 ],  1, MPI_INT, &node_count, 1, MPI_INT, 0, MPI_COMM_WORLD ) ); 
+    // Option 2: simply broadcast the number of nodes
     MPI_( MPI_Bcast( &node_count, 1, MPI_INT, 0, MPI_COMM_WORLD ) );
 
     // PER TASK DATA INIT - in the real world this is the place where data are read from file
     // through the MPI_File_ functions or, less likely received from the root process
-    const int ARRAY_SIZE = 1024 * 1024 * 256; // 256 Mi floats x 2 == 2 GiB total storage
+    const int ARRAY_SIZE = 1024 * 1024 * 256;// * 1024 * 256; // 256 Mi floats x 2 == 2 GiB total storage
     // @WARNING: ARRAY_SIZE must be evenly divisible by the number of MPI processes
     const int PER_MPI_TASK_ARRAY_SIZE = ARRAY_SIZE / numtasks;
     if( ARRAY_SIZE % numtasks != 0  && task == 0 ) {
@@ -111,12 +156,21 @@ int main( int argc, char** argv ) {
         v2[ i ] = 1;  
     }
 
-    real_t partial_dot = 0.;
+    // PARALLEL DOT PRODUCT COMPUTATION
+    real_t partial_dot = 0.f;
 #ifndef GPU
-    for( int i = 0; i != PER_MPI_TASK_ARRAY_SIZE; ++i ) partial_dot += v1[ i ] * v2[ i ];
+    int t = 0;
+    int p = 0;
+    for( t = 0; t != PER_MPI_TASK_ARRAY_SIZE; ++t ) {
+        partial_dot += v1[ t ] * v2[ t ];
+    }
+    //partial_dot = real_t( p );
+#ifndef NO_LOG    
     std::ostringstream os;
-    os << &nodeid[ 0 ] << " - rank: " << task << '\n';
-    std::cout << os.str(); os.flush();     
+    os << &nodeid[ 0 ] << " - rank: " << task << " size: " << PER_MPI_TASK_ARRAY_SIZE 
+       << ' ' << t << "  partial dot: " << partial_dot << '\n' ;
+    std::cout << os.str(); os.flush();
+#endif     
 #else
     // SELECT GPU = task % <num gpus on node>, note that with this
     // approach it is possible to support nodes with different numbers of GPUs
@@ -127,10 +181,11 @@ int main( int argc, char** argv ) {
         return 1;
     }
     const int device =   ( task / node_count ) % device_count;
+#ifndef NO_LOG    
     std::ostringstream os;
     os << &nodeid[ 0 ] << " - rank: " << task << "\tGPU: " << device << '\n';
-    std::cout << os.str(); os.flush();     
-
+    std::cout << os.str(); os.flush();
+#endif     
     if( cudaSetDevice( device ) != cudaSuccess ) {
         std::cerr << task << ' ' << cudaGetErrorString( cudaGetLastError() ) <<  " cudaGetSetDevice FAILED\n"; 
         MPI_( MPI_Abort( MPI_COMM_WORLD, 1 ) );
@@ -146,11 +201,6 @@ int main( int argc, char** argv ) {
     }
     if( cudaMalloc( &dev_v2,   sizeof( real_t ) * PER_MPI_TASK_ARRAY_SIZE ) != cudaSuccess ) {
         std::cerr << task << ' ' << cudaGetErrorString( cudaGetLastError() ) <<  " cudaMalloc FAILED\n"; 
-        MPI_( MPI_Abort( MPI_COMM_WORLD, 1 ) );
-        return 1;
-    }
-    if( cudaMalloc( &dev_dout, sizeof( real_t ) * 1 ) != cudaSuccess ) {
-        std::cerr << task << ' ' << __LINE__ << ' ' << cudaGetErrorString( cudaGetLastError() ) <<  " cudaMalloc FAILED\n"; 
         MPI_( MPI_Abort( MPI_COMM_WORLD, 1 ) );
         return 1;
     }
@@ -171,6 +221,13 @@ int main( int argc, char** argv ) {
     const int NUM_THREADS_PER_BLOCK = BLOCK_SIZE; // must match size of buffer used for reduction
     const int NUM_BLOCKS = std::min( PER_MPI_TASK_ARRAY_SIZE  / NUM_THREADS_PER_BLOCK,
                                      0xffff ); // max number of blocks is 64k 
+    
+#ifndef REDUCE_CPU
+    if( cudaMalloc( &dev_dout, sizeof( real_t ) * 1 ) != cudaSuccess ) {
+        std::cerr << task << ' ' << __LINE__ << ' ' << cudaGetErrorString( cudaGetLastError() ) <<  " cudaMalloc FAILED\n"; 
+        MPI_( MPI_Abort( MPI_COMM_WORLD, 1 ) );
+        return 1;
+    }
     // initialize partial dot product to zero
     if( cudaMemset( dev_dout, 0, sizeof( real_t) ) != cudaSuccess ) {
         std::cerr << task << ' ' << cudaGetErrorString( cudaGetLastError() ) <<  " cudaMemset FAILED\n"; 
@@ -178,17 +235,34 @@ int main( int argc, char** argv ) {
         return 1;
     }
     // actual on-device computation    
-    dot_product_kernel<<<NUM_BLOCKS, NUM_THREADS_PER_BLOCK>>>( dev_v1, dev_v2, PER_MPI_TASK_ARRAY_SIZE, dev_dout );
+    dot_product_kernel<<<NUM_BLOCKS, NUM_THREADS_PER_BLOCK>>>( dev_v1, dev_v2, PER_MPI_TASK_ARRAY_SIZE, dev_dout ); 
     // check for kernel launch errors: it is not possible to catch on-device execution errors but only
     // if there was an error launching the kernel
     if( cudaGetLastError() != cudaSuccess ) {
         std::cerr << task << ' ' << cudaGetErrorString( cudaGetLastError() ) <<  " kernel launch FAILED\n"; 
         MPI_( MPI_Abort( MPI_COMM_WORLD, 1 ) );
         return 1;      
-    }     
-
+    }
     // MOVE DATA TO CPU
     cudaMemcpy( &partial_dot, dev_dout, sizeof( real_t ) * 1, cudaMemcpyDeviceToHost );
+#else
+    const int PARTIAL_REDUCE_SIZE = NUM_BLOCKS; 
+    if( cudaMalloc( &dev_dout, sizeof( real_t ) * PARTIAL_REDUCE_SIZE ) != cudaSuccess ) {
+        std::cerr << task << ' ' << __LINE__ << ' ' << cudaGetErrorString( cudaGetLastError() ) <<  " cudaMalloc FAILED\n"; 
+        MPI_( MPI_Abort( MPI_COMM_WORLD, 1 ) );
+        return 1;
+    }
+    partial_dot_product_kernel<<<NUM_BLOCKS, NUM_THREADS_PER_BLOCK>>>( dev_v1, dev_v2, PER_MPI_TASK_ARRAY_SIZE, dev_dout );  
+    std::vector< real_t > rdot( PARTIAL_REDUCE_SIZE );
+    cudaMemcpy( &rdot[ 0 ], dev_dout, sizeof( real_t ) * PARTIAL_REDUCE_SIZE, cudaMemcpyDeviceToHost );
+    partial_dot = std::accumulate( rdot.begin(), rdot.end(), 0.f );
+#endif
+
+#ifndef NO_LOG    
+    std::ostringstream os;
+    os << &nodeid[ 0 ] << " - rank: " << task << " partial dot: " << partial_dot << '\n' ;
+    std::cout << os.str(); os.flush();
+#endif
 #endif
 
     // REDUCE (SUM) ALL ranks -> rank 0
