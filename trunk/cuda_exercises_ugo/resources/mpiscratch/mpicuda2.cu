@@ -181,10 +181,12 @@ int main( int argc, char** argv ) {
         return 1;
     }
     const int device =   ( task / node_count ) % device_count;
-#ifndef NO_LOG    
-    std::ostringstream os;
-    os << &nodeid[ 0 ] << " - rank: " << task << "\tGPU: " << device << '\n';
-    std::cout << os.str(); os.flush();
+#ifndef NO_LOG
+    {    
+        std::ostringstream os;
+        os << &nodeid[ 0 ] << " - rank: " << task << "\tGPU: " << device << '\n';
+        std::cout << os.str(); os.flush();
+    }
 #endif     
     if( cudaSetDevice( device ) != cudaSuccess ) {
         std::cerr << task << ' ' << cudaGetErrorString( cudaGetLastError() ) <<  " cudaGetSetDevice FAILED\n"; 
@@ -258,10 +260,12 @@ int main( int argc, char** argv ) {
     partial_dot = std::accumulate( rdot.begin(), rdot.end(), 0.f );
 #endif
 
-#ifndef NO_LOG    
-    std::ostringstream os;
-    os << &nodeid[ 0 ] << " - rank: " << task << " partial dot: " << partial_dot << '\n' ;
-    std::cout << os.str(); os.flush();
+#ifndef NO_LOG
+    {    
+        std::ostringstream os;
+        os << &nodeid[ 0 ] << " - rank: " << task << " partial dot: " << partial_dot << '\n' ;
+        std::cout << os.str(); os.flush();
+    }
 #endif
 #endif
 
