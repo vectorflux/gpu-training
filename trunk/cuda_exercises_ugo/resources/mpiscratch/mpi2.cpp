@@ -28,8 +28,8 @@
 int main( int argc, char** argv ) {
     int rank, size, len;
     char nid[MPI_MAX_PROCESSOR_NAME];
-    MPI_( MPI_Errhandler_set( MPI_COMM_WORLD, MPI_ERRORS_RETURN ) );
     MPI_( MPI_Init( &argc, &argv ) );
+    MPI_( MPI_Errhandler_set( MPI_COMM_WORLD, MPI_ERRORS_RETURN ) );
     MPI_( MPI_Comm_rank( MPI_COMM_WORLD, &rank ) );
     MPI_( MPI_Comm_size( MPI_COMM_WORLD, &size ) );
     MPI_( MPI_Get_processor_name( nid, &len ) );
