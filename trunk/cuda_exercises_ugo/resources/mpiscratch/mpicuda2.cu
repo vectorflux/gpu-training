@@ -18,7 +18,8 @@
 // #GPU : enable GPU computation
 // #NO_LOG: do not printout log messages
 // #REDUCE_CPU: perform final per-task reduction step on the CPU
-// #DOUBLE: double precision
+// #DOUBLE_: double precision
+// #MPI_RROBIN_: assume a round robin layout i.e process 0 -> node 0, process 1 -> node 1 ...
 
 
 // compilation with mvapich2:
@@ -27,6 +28,14 @@
 // ~/projects/gpu-training/trunk/cuda_exercises_ugo/resources/mpiscratch/mpicuda2.cu
 
 
+// run:
+// 1) w/o scheduler: mpiexec -np ... -hosts ... ./a.out
+// 2) w/ scheduler: see mpi_cuda_pbs_ref.sh script
+
+// note: when using mvapich2/1.6 and *not* going through the pbs scheduler it seems
+//       the default behavior is rrobin, using the pbs launch script the default
+//       behavior is "bunch" (as defined by the mvapich2 documentation) 
+
 // note: using single precision floats because that's the only supported type
 //       for atomics on CUDA 4
 
@@ -34,6 +43,11 @@
 //       256 Mi floats, 16 MPI tasks on two nodes (8 per node, 4 per GPUs)
 //       CUDA fails to allocate memory exaclty for one task on each node;
 //       Everything works fine with the same data with 8 tasks (4 per node, 2 per GPU ).
+
+// note: it is possible to implement a discovery step to find the current MPI layout
+//       by checking if MPI rank 0 and 1 are on the same processor ("bunch" layout) or
+//       not ("scatter" layout)
+
 
 #ifndef DOUBLE_
 // with CUDA 4.0 atomics are available for single precision only!!!
@@ -100,7 +114,8 @@ int main( int argc, char** argv ) {
     std::vector< char > nodeid( MPI_MAX_PROCESSOR_NAME, '\0' );
     int len = 0;
     MPI_( MPI_Get_processor_name( &nodeid[ 0 ], &len ) );
-    
+
+#ifdef MPI_RROBIN_     
     // RETRIEVE TOTAL NUMBER OF NODES USED, is there an easier way ?
     // required to have each GPU assigned to the same number of processes
     // on each node
@@ -125,7 +140,7 @@ int main( int argc, char** argv ) {
         std::cout << "Number of nodes: " << node_count << std::endl;
 #endif 
     }
-    
+  
     // SEND INFORMATION USED FOR GPU <-> RANK MAPPING TO EACH PROCESS
     // Option 1: use scatter, useful only to send per-process specific information like e.g
     //           the GPU to use. It is in general a more robust method to have the root process
@@ -137,7 +152,7 @@ int main( int argc, char** argv ) {
     //MPI_( MPI_Scatter( &sendbuf[ 0 ],  1, MPI_INT, &node_count, 1, MPI_INT, 0, MPI_COMM_WORLD ) ); 
     // Option 2: simply broadcast the number of nodes
     MPI_( MPI_Bcast( &node_count, 1, MPI_INT, 0, MPI_COMM_WORLD ) );
-
+#endif
     // PER TASK DATA INIT - in the real world this is the place where data are read from file
     // through the MPI_File_ functions or, less likely received from the root process
     const int ARRAY_SIZE = 1024 * 1024 * 256;// * 1024 * 256; // 256 Mi floats x 2 == 2 GiB total storage
@@ -180,7 +195,11 @@ int main( int argc, char** argv ) {
         MPI_( MPI_Abort( MPI_COMM_WORLD, 1 ) );
         return 1;
     }
-    const int device =   ( task / node_count ) % device_count;
+#ifdef MPI_RROBIN_
+    const int device = ( task / node_count ) % device_count;
+#else
+    const int device = task % device_count;
+#endif
 #ifndef NO_LOG
     {    
         std::ostringstream os;
