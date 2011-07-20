@@ -10,8 +10,8 @@ int main( int argc, char** argv ) {
 
     int numtasks = 0;
     int task     = 0;
-    MPI_( MPI_Errhandler_set( MPI_COMM_WORLD, MPI_ERRORS_RETURN ) );
     MPI_( MPI_Init( &argc, &argv ) );
+    MPI_( MPI_Errhandler_set( MPI_COMM_WORLD, MPI_ERRORS_RETURN ) );
     MPI_( MPI_Comm_size( MPI_COMM_WORLD, &numtasks ) );
     MPI_( MPI_Comm_rank( MPI_COMM_WORLD, &task  ) );
     int dest   = 0;

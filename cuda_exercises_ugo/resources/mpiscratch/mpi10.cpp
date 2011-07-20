@@ -15,8 +15,8 @@ int main( int argc, char** argv ) {
 
     int numtasks = 0; 
  
-    MPI_( MPI_Errhandler_set( MPI_COMM_WORLD, MPI_ERRORS_RETURN ) );
     MPI_( MPI_Init( &argc, &argv ) );
+    MPI_( MPI_Errhandler_set( MPI_COMM_WORLD, MPI_ERRORS_RETURN ) );
     MPI_( MPI_Comm_size( MPI_COMM_WORLD, &numtasks ) );
     
     const int DIM = int( std::sqrt( double( numtasks ) ) );
