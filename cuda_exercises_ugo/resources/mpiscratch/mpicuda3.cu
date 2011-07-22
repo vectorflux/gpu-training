@@ -21,7 +21,7 @@
 // #REDUCE_CPU: perform final per-task reduction step on the CPU
 // #DOUBLE_: double precision
 // #MPI_RROBIN_: assume a round robin layout i.e process 0 -> node 0, process 1 -> node 1 ...
-// #NO_GPU_MALLOC_TIME: do not take into account malloc time; usually this part of an initialization step
+// #NO_GPU_MALLOC_TIME: do not take into account malloc time; usually this is part of an initialization step
 
 
 // compilation with mvapich2:
