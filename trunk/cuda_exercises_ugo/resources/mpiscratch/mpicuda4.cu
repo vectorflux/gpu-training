@@ -147,11 +147,11 @@ __device__ real_t sum( const real_t* v ) {
 
 // perform parallel dot product in two steps:
 // 1) each block computes a single value and stores it into an array of size == number of blocks
-// 2) the last block to finish performs a reduction on the array produced in the above step
+// 2) the last block to finish step (1) performs a reduction on the array produced in the above step
 // parameters:
 // v1 first input vector
 // v2 second input vector
-// N size of input vector
+// N  size of input vector
 // out output vector: size MUST be equal to the number of GPU blocks since it us used
 //     for partial reduction; result is at position 0
 __global__ void dot_product_full_kernel( const real_t* v1, const real_t* v2, int N, real_t* out ) {
@@ -164,7 +164,7 @@ __global__ void dot_product_full_kernel( const real_t* v1, const real_t* v2, int
         out[ blockIdx.x ] = r;
         // wait for value to be available to all the threads on the device
         __threadfence();
-        // increment atomic counter and retrieve values
+        // increment atomic counter and retrieve value
         const unsigned int v = atomicInc( &count, gridDim.x );
         // check if last block to perform computation
         lastBlock = ( v == gridDim.x - 1 );
