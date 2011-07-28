@@ -96,7 +96,8 @@ __global__ void partial_dot_product_kernel( const real_t* v1, const real_t* v2, 
 // performing the first reduction step
 __device__ unsigned int count = 0;
 // shared memory used by partial_dot and sum functions
-// for temporary partial reductions
+// for temporary partial reductions; declare as global variable
+// because used in more than one function
 __shared__ real_t cache[ BLOCK_SIZE ];
 
 // partial dot product: each thread block produces a single value
