@@ -57,6 +57,8 @@ __global__ void partial_dot( const real_t* v1, const real_t* v2, real_t* out, in
         cache[ threadIdx.x ] += v1[ i ] * v2[ i ];
         i += gridDim.x * blockDim.x;
     }    
+    __syncthreads(); // required because later on the current thread is accessing
+                     // data written by another thread
     i = BLOCK_SIZE / 2;
     while( i > 0 ) {
         if( threadIdx.x < i ) cache[ threadIdx.x ] += cache[ threadIdx.x + i ];
