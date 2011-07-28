@@ -15,7 +15,9 @@
 //               reduction step on the array generated at (1) 
 //            The first thread (0) of each block atomically increments a global counter then
 //            checks the counter value: the last block to increment the counter is the one
-//            that reads '(gridDim.x - 1)' from the counter
+//            that reads '(gridDim.x - 1)' from the counter.
+//            Global synchronization is achieved through __threadfence() 
+//            to ensure that all the elements in the output array have been written 
 
 //
 // #Code: 1) compute launch grid configuration
