@@ -24,7 +24,7 @@
 //        7) free memory 
 //             
 // #Compilation: 
-//               [correct] nvcc -arch=sm_20 4_1_parallel-dot-product-atomics.cu -o dot-product-atomics
+//               [correct] nvcc -arch=sm_20 4_1_parallel-dot-product-atomics-portable.cu -o dot-product-atomics
 //               [wrong]   nvcc -DNO_SYNC -arch=sm_20 4_1_parallel-dot-product-atomics.cu -o dot-product-atomics 
 //
 // #Execution: ./dot-product-atomics
