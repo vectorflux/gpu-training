@@ -29,3 +29,20 @@ Once on the node, you must load the CUDA standard toolkit (SDK). The default is 
 module load cuda
 
 All the following exercises assume that you have opened an interactive job on a GPU node, and have loaded the CUDA SDK 3.2 
+
+CUDA Exercises
+
+Exercise 1: Retrieve Device Info
+
+Exercise 2: Sum of vectors
+
+Exercise 3: Matrix Transpose
+
+Exercise 4: Parallel Dot Product
+
+Exercise 5: Matrix-Matrix Multiplication
+
+Exercise 6: Random-access Stream
+[edit] Additional CUDA Examples
+
+Example 15: Concurrent Kernels 
